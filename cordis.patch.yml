@@ -1,0 +1,3 @@
+- insert:
+    - id: markdown-notes
+      name: '@local/markdown-notes'

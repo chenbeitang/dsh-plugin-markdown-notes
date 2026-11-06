@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Markdown Notes",
+    "description": "A local Markdown notes manager in the sidebar: folder tree, images and rich text, favorites, delete, an editable split view with collapsible file bar and draggable pane widths, a slash menu in both source and rendered views, per-code-block language switching with syntax highlighting, open-in-file-manager, drag-to-move, image resizing, synchronized scrolling, and character-accurate mirrored carets."
+  }
+}

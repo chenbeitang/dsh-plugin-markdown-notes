@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="Markdown notes">
+  <defs>
+    <linearGradient id="cover" x1="10" y1="6" x2="52" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3f8cff"/>
+      <stop offset="1" stop-color="#2456c9"/>
+    </linearGradient>
+    <linearGradient id="page" x1="20" y1="12" x2="48" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e7eefc"/>
+    </linearGradient>
+  </defs>
+  <rect x="5" y="5" width="54" height="54" rx="14" fill="url(#cover)"/>
+  <path d="M19 13h24a4 4 0 0 1 4 4v34a2 2 0 0 1-3 1.7L32 47l-12 5.7A2 2 0 0 1 17 51V17a4 4 0 0 1 4-4z" fill="url(#page)" opacity="0.97"/>
+  <path d="M24 22h16M24 29h16M24 36h9" stroke="#2456c9" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M38.5 42.5 47 34l4 4-8.5 8.5-5.2 1.2 1.2-5.2z" fill="#ffb02e" stroke="#c97c00" stroke-width="1.1" stroke-linejoin="round"/>
+  <path d="m45.6 35.4 2.3 2.3" stroke="#fff3d1" stroke-width="1.4" stroke-linecap="round"/>
+</svg>
