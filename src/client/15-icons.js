@@ -151,6 +151,9 @@ MN.Icon = function Icon(props) {
       children.push(h('rect', { key: 'a', x: 3.5, y: 4.5, width: 17, height: 15, rx: 2 }));
       children.push(h('path', { key: 'b', d: 'M3.5 9.5h17M3.5 14.5h17M9.2 4.5v15M14.8 4.5v15' }));
       break;
+    case 'nav':
+      children.push(h('path', { key: 'a', d: 'M4 6h2.6M4 12h2.6M4 18h2.6M10.5 6H20M10.5 12H20M10.5 18H20' }));
+      break;
     case 'task':
       children.push(h('rect', { key: 'a', x: 4, y: 4, width: 16, height: 16, rx: 3 }));
       children.push(h('path', { key: 'b', d: 'm8.3 12.2 2.4 2.5 5-5.3' }));

@@ -4,6 +4,48 @@
  * @module @local/markdown-notes/src/client/50-page
  */
 
+/** 把标题行里的常见 Markdown 标记去掉，得到纯文本目录标题。 */
+function headingPlainText(raw) {
+  return String(raw || '')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/<[^>]*>/g, '')
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')
+    .replace(/(\*|_)(.*?)\1/g, '$2')
+    .replace(/~~(.*?)~~/g, '$1')
+    .replace(/==(.*?)==/g, '$1')
+    .replace(/\\([\\`*_{}\[\]()#+.!>-])/g, '$1')
+    .replace(/\s+#+\s*$/, '')
+    .trim();
+}
+
+/** 提取 Markdown 的 # 标题（跳过 fenced code block 里的伪标题）。 */
+function extractHeadings(markdown) {
+  const lines = String(markdown === undefined || markdown === null ? '' : markdown).split('\n');
+  const headings = [];
+  let fence = '';
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const fenceMatch = /^\s*(```+|~~~+)/.exec(line);
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0];
+      if (fence === '') fence = marker;
+      else if (fence === marker) fence = '';
+      continue;
+    }
+    if (fence !== '') continue;
+    const heading = /^\s{0,3}(#{1,6})\s+(.*)$/.exec(line);
+    if (!heading) continue;
+    const text = headingPlainText(heading[2]);
+    if (text === '') continue;
+    headings.push({ level: heading[1].length, text, line: index + 1 });
+  }
+  return headings;
+}
+
+MN.extractHeadings = extractHeadings;
+
 /** 读取 UI 偏好。 */
 function loadUiPrefs() {
   const raw = MN.readLS(MN.LS_KEY, {});
@@ -19,7 +61,8 @@ function loadUiPrefs() {
     raw && typeof raw.sideWidth === 'number' && Number.isFinite(raw.sideWidth)
       ? Math.min(560, Math.max(180, raw.sideWidth))
       : null;
-  return { view, expanded, syncScroll, splitRatio, sideCollapsed, sideWidth };
+  const navOpen = Boolean(raw && raw.navOpen === true);
+  return { view, expanded, syncScroll, splitRatio, sideCollapsed, sideWidth, navOpen };
 }
 
 /** 把时间戳格式化为 HH:mm。 */
@@ -238,6 +281,7 @@ MN.AppPage = function AppPage(props) {
   const [splitRatio, setSplitRatio] = useState(initialPrefs.splitRatio);
   const [sideCollapsed, setSideCollapsed] = useState(initialPrefs.sideCollapsed);
   const [sideWidth, setSideWidth] = useState(initialPrefs.sideWidth);
+  const [navOpen, setNavOpen] = useState(initialPrefs.navOpen);
   const [ghostCaret, setGhostCaret] = useState(null);
   const [query, setQuery] = useState('');
   const [searchResult, setSearchResult] = useState(null);
@@ -580,13 +624,24 @@ MN.AppPage = function AppPage(props) {
     return () => document.removeEventListener('selectionchange', onSelectionChange);
   }, [view, scheduleGhostCaret]);
 
-  // 面板尺寸变化 / 内容变化后重新定位。
+  // 面板尺寸变化 / 内容变化后重新定位。除窗口缩放外，文件栏调宽、
+  // 分栏拖动也会改变编辑器实际宽度，需要监听 pane 自身尺寸。
   useEffect(() => {
     if (view !== 'split') return undefined;
     const onResize = () => scheduleGhostCaret();
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [view, scheduleGhostCaret]);
+    let observer = null;
+    const panes = panesRef.current;
+    if (panes && typeof ResizeObserver === 'function') {
+      observer = new ResizeObserver(onResize);
+      observer.observe(panes);
+      panes.querySelectorAll('.mn-pane').forEach((pane) => observer.observe(pane));
+    }
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (observer) observer.disconnect();
+    };
+  }, [view, scheduleGhostCaret, note !== null]);
 
   const noteContentForGhost = note ? note.content : null;
   useEffect(() => {
@@ -706,12 +761,13 @@ MN.AppPage = function AppPage(props) {
         splitRatio,
         sideCollapsed,
         sideWidth,
+        navOpen,
         expanded: Array.from(expanded),
         lastOpened: lastOpenRef.current,
       });
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [view, syncScroll, splitRatio, sideCollapsed, sideWidth, expanded]);
+  }, [view, syncScroll, splitRatio, sideCollapsed, sideWidth, navOpen, expanded]);
 
   // Ctrl/Cmd + S 立即保存。
   useEffect(() => {
@@ -1449,12 +1505,13 @@ MN.AppPage = function AppPage(props) {
     function finish() {
       cleanup();
       setSideWidth(Math.round(latest));
+      scheduleGhostCaret();
     }
     sideDragCleanupRef.current = cleanup;
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', finish);
     window.addEventListener('pointercancel', finish);
-  }, []);
+  }, [scheduleGhostCaret]);
 
   const handleSideResizeKeyDown = useCallback(
     (event) => {
@@ -1717,6 +1774,99 @@ MN.AppPage = function AppPage(props) {
   })();
 
   const toolbarVisible = note !== null;
+  const outlineHeadings = note ? extractHeadings(note.content) : [];
+
+  /** 点击目录项：分别把原文 textarea 和渲染视图滚动到标题所在行。 */
+  const scrollToOutlineLine = (line) => {
+    // 目录跳转的两次滚动是显式定位，短暂压住同步滚动，避免被回环覆盖。
+    scrollSyncRef.current.lockUntil = Date.now() + 120;
+    const value = noteRef.current ? noteRef.current.content : '';
+    const source = sourceRef.current;
+    if (source) {
+      const offset = MN.sourceOffsetFromPosition(value, line, 0);
+      let delta = null;
+      try {
+        const rect = MN.measureSourceCaret(source, sourceMirrorRef.current, offset);
+        if (rect) delta = rect.top - source.getBoundingClientRect().top;
+      } catch (error) {
+        delta = null;
+      }
+      if (delta === null) {
+        const style = window.getComputedStyle(source);
+        const lineHeight = Number.parseFloat(style.lineHeight) || 22.75;
+        const paddingTop = Number.parseFloat(style.paddingTop) || 0;
+        delta = paddingTop + (line - 1) * lineHeight - source.scrollTop;
+      }
+      source.scrollTop = Math.max(0, source.scrollTop + delta - 20);
+    }
+    const preview = getPreviewScrollElement();
+    if (preview) {
+      const blocks = preview.querySelectorAll('[data-line]');
+      let target = null;
+      for (const block of blocks) {
+        const start = Number.parseInt(block.getAttribute('data-line'), 10);
+        const end = Number.parseInt(block.getAttribute('data-line-end'), 10) || start;
+        if (!Number.isFinite(start)) continue;
+        if (start === line) {
+          target = block;
+          break;
+        }
+        if (start <= line && line <= end) target = block;
+      }
+      if (target) {
+        const delta = target.getBoundingClientRect().top - preview.getBoundingClientRect().top;
+        preview.scrollTop = Math.max(0, preview.scrollTop + delta - 12);
+      }
+    }
+  };
+
+  const navPanel = navOpen
+    ? h(
+        'aside',
+        { className: 'mn-nav-panel', 'aria-label': t('nav.title') },
+        h(
+          'div',
+          { className: 'mn-nav-head' },
+          h(MN.Icon, { name: 'book', size: 14 }),
+          h('span', { className: 'mn-nav-title' }, t('nav.title')),
+          h('span', { className: 'mn-nav-count' }, String(outlineHeadings.length)),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'mn-iconbtn',
+              title: t('nav.close'),
+              'aria-label': t('nav.close'),
+              onClick: () => setNavOpen(false),
+            },
+            h(MN.Icon, { name: 'close', size: 12 }),
+          ),
+        ),
+        outlineHeadings.length > 0
+          ? h(
+              'div',
+              { className: 'mn-nav-list', role: 'list' },
+              outlineHeadings.map((item, index) =>
+                h(
+                  'button',
+                  {
+                    key: item.line + ':' + index,
+                    type: 'button',
+                    className: 'mn-nav-item',
+                    role: 'link',
+                    'data-level': item.level,
+                    title: item.text,
+                    style: { paddingLeft: 10 + (item.level - 1) * 14 + 'px' },
+                    onClick: () => scrollToOutlineLine(item.line),
+                  },
+                  h('span', { className: 'mn-nav-hash' }, '#'.repeat(item.level)),
+                  h('span', { className: 'mn-nav-text' }, item.text),
+                ),
+              ),
+            )
+          : h('div', { className: 'mn-nav-empty' }, t('nav.empty')),
+      )
+    : null;
 
   return h(
     'div',
@@ -2016,6 +2166,19 @@ MN.AppPage = function AppPage(props) {
                   'button',
                   {
                     type: 'button',
+                    className: 'mn-sync-toggle mn-nav-toggle',
+                    'data-on': navOpen ? 'true' : 'false',
+                    'aria-pressed': navOpen ? 'true' : 'false',
+                    title: t('nav.title'),
+                    onClick: () => setNavOpen((open) => !open),
+                  },
+                  h(MN.Icon, { name: 'nav', size: 13 }),
+                  h('span', null, t('nav.label')),
+                ),
+                h(
+                  'button',
+                  {
+                    type: 'button',
                     className: 'mn-sync-toggle',
                     'data-on': syncScroll ? 'true' : 'false',
                     'aria-pressed': syncScroll ? 'true' : 'false',
@@ -2036,6 +2199,9 @@ MN.AppPage = function AppPage(props) {
                 })
               : null,
             h(
+              'div',
+              { className: 'mn-main-body' },
+              h(
               'div',
               {
                 className: 'mn-panes',
@@ -2114,6 +2280,8 @@ MN.AppPage = function AppPage(props) {
                     }),
                   )
                 : null,
+            ),
+              navPanel,
             ),
           )
         : h(

@@ -276,6 +276,7 @@ check('AppPage renders the note workspace', () => {
     0.5,
     false,
     null,
+    false,
     null,
     '',
     null,
@@ -298,6 +299,7 @@ check('AppPage renders the note workspace', () => {
   assert.ok(hasClass(element, 'mn-panes'));
   assert.ok(hasClass(element, 'mn-rich'));
   assert.ok(hasClass(element, 'mn-sync-toggle'));
+  assert.ok(hasClass(element, 'mn-nav-toggle'));
   assert.ok(hasClass(element, 'mn-splitter'));
   assert.ok(hasClass(element, 'mn-side-resizer'));
   const text = [];
@@ -305,10 +307,57 @@ check('AppPage renders the note workspace', () => {
   assert.ok(text.join(' ').includes('周报'));
 });
 
+check('AppPage renders the navigation outline panel', () => {
+  const env = makeEnv();
+  env.reset([
+    false,
+    '',
+    fakeState,
+    new Set(['工作']),
+    'split',
+    true,
+    0.5,
+    false,
+    null,
+    true,
+    null,
+    '',
+    null,
+    false,
+    fakeNote,
+    false,
+    'saved',
+    Date.now(),
+    '',
+    'source',
+    null,
+    null,
+    null,
+    0,
+  ]);
+  const element = deepRender(env, env.MN.AppPage({ pickDirectory: null }));
+  assert.ok(hasClass(element, 'mn-nav-panel'));
+  assert.ok(hasClass(element, 'mn-nav-item'));
+  const text = [];
+  collectText(element, text);
+  assert.ok(text.join(' ').includes('周报'));
+});
+
+check('extractHeadings skips fenced code and preserves levels', () => {
+  const env = makeEnv();
+  env.reset([]);
+  const headings = env.MN.extractHeadings('# A\n\n```\n# fake\n```\n## B\n### C');
+  assert.deepEqual(headings, [
+    { level: 1, text: 'A', line: 1 },
+    { level: 2, text: 'B', line: 6 },
+    { level: 3, text: 'C', line: 7 },
+  ]);
+});
+
 check('AppPage renders the empty state', () => {
   const env = makeEnv();
   const emptyState = { settings: fakeSettings, tree: [], stats: { notes: 0, folders: 0 }, favorites: [], lastOpened: null };
-  env.reset([false, '', emptyState, new Set(), 'source', false, 0.5, false, null, null, '', null, false, null, false, 'saved', null, '', 'source', null, null, null, 0]);
+  env.reset([false, '', emptyState, new Set(), 'source', false, 0.5, false, null, false, null, '', null, false, null, false, 'saved', null, '', 'source', null, null, null, 0]);
   const element = deepRender(env, env.MN.AppPage({ pickDirectory: null }));
   assert.ok(hasClass(element, 'mn-root'));
   assert.ok(hasClass(element, 'mn-empty'));
@@ -326,6 +375,7 @@ check('AppPage collapses and expands the file sidebar', () => {
     0.5,
     true,
     null,
+    false,
     null,
     '',
     null,
@@ -984,6 +1034,75 @@ check('multiline code selection maps to the right source line', () => {
   const position = env.MN.previewSelectionToPosition(preview, value);
   assert.equal(position.line, 3);
   assert.equal(position.column, 0);
+  currentSelection = { rangeCount: 0, getRangeAt: () => null };
+});
+
+check('list element selection resolves to the clicked item', () => {
+  const env = makeEnv();
+  env.reset([]);
+  const value = '- one\n- two\n- three';
+  const texts = ['one', 'two', 'three'].map((nodeValue) => ({ nodeType: 3, nodeValue, parentElement: null }));
+  const block = {
+    nodeType: 1,
+    tagName: 'UL',
+    childNodes: [],
+    classList: { contains: () => false },
+    getAttribute(name) {
+      if (name === 'data-line') return '1';
+      if (name === 'data-line-end') return '3';
+      return null;
+    },
+    closest(selector) {
+      return selector === '[data-line]' ? block : null;
+    },
+    contains(node) {
+      let current = node;
+      while (current) {
+        if (current === block) return true;
+        current = current.parentElement;
+      }
+      return false;
+    },
+  };
+  const items = texts.map((text) => {
+    const item = {
+      nodeType: 1,
+      tagName: 'LI',
+      childNodes: [text],
+      classList: { contains: () => false },
+      contains(node) {
+        let current = node;
+        while (current) {
+          if (current === item) return true;
+          current = current.parentElement;
+        }
+        return false;
+      },
+      closest(selector) {
+        return selector === '[data-line]' ? block : null;
+      },
+    };
+    text.parentElement = item;
+    item.parentElement = block;
+    block.childNodes.push(item);
+    return item;
+  });
+  const preview = { querySelectorAll: () => [block], contains: () => true };
+  const range = {
+    startContainer: items[2],
+    startOffset: 0,
+    getBoundingClientRect: () => ({ left: 20, top: 100, width: 0, height: 20 }),
+  };
+  documentStub.caretRangeFromPoint = () => ({ startContainer: texts[2], startOffset: 0 });
+  currentSelection = { rangeCount: 1, getRangeAt: () => range };
+  const position = env.MN.previewSelectionToPosition(preview, value);
+  assert.equal(position.line, 3);
+  assert.equal(position.column, 2);
+  delete documentStub.caretRangeFromPoint;
+  currentSelection = { rangeCount: 1, getRangeAt: () => range };
+  const fallbackPosition = env.MN.previewSelectionToPosition(preview, value);
+  assert.equal(fallbackPosition.line, 3);
+  assert.equal(fallbackPosition.column, 2);
   currentSelection = { rangeCount: 0, getRangeAt: () => null };
 });
 

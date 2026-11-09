@@ -255,6 +255,48 @@ function renderedPositionAt(segment, index) {
  * 光标之后最近的文本字符，避免整个映射退回粗糙的行比例估算。
  */
 function renderedIndexForRange(segments, range) {
+  const allParts = [];
+  for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+    for (const part of segments[segmentIndex].parts) allParts.push({ segmentIndex, part });
+  }
+  const container = range.startContainer;
+  // Selection 落在元素节点时（常见于点击列表圆点 / 行间空白），
+  // 按 container.childNodes[startOffset] 的位置选择下一段或上一段的文本。
+  if (container && container.nodeType === 1 && container.childNodes) {
+    const inside = (node, ancestor) => {
+      let current = node;
+      while (current) {
+        if (current === ancestor) return true;
+        current = current.parentElement;
+      }
+      return false;
+    };
+    const children = Array.from(container.childNodes);
+    const offset = Math.max(0, Math.min(children.length, Number(range.startOffset) || 0));
+    const indexes = [];
+    if (offset < children.length) indexes.push(offset);
+    if (offset > 0) indexes.push(offset - 1);
+    for (const childIndex of indexes) {
+      const child = children[childIndex];
+      if (!child) continue;
+      const candidates = allParts.filter(
+        ({ part }) => part.node === child || inside(part.node, child),
+      );
+      if (candidates.length === 0) continue;
+      const chosen = childIndex >= offset ? candidates[0] : candidates[candidates.length - 1];
+      return {
+        segmentIndex: chosen.segmentIndex,
+        renderedIndex:
+          childIndex >= offset
+            ? chosen.part.partStart
+            : chosen.part.partStart + (chosen.part.end - chosen.part.start),
+      };
+    }
+    const inContainer = allParts.filter(({ part }) => inside(part.node, container));
+    if (inContainer.length > 0) {
+      return { segmentIndex: inContainer[0].segmentIndex, renderedIndex: inContainer[0].part.partStart };
+    }
+  }
   for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
     const segment = segments[segmentIndex];
     for (const part of segment.parts) {
@@ -663,16 +705,43 @@ MN.previewSelectionToPosition = function previewSelectionToPosition(preview, val
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return null;
   const range = selection.getRangeAt(0);
-  const container = range.startContainer;
+  let container = range.startContainer;
+  let startOffset = range.startOffset;
   if (!preview.contains(container)) return null;
   const element = container.nodeType === 1 ? container : container.parentElement;
   const block = element && typeof element.closest === 'function' ? element.closest('[data-line]') : null;
   if (!block || !preview.contains(block)) return null;
+  // 某些列表 / 布局点击会让 Selection 落在 <li>/<ul> 元素节点上。
+  // 用点击位置反查一次精确文本节点，避免按元素节点只能退化为“第一/最后一段”。
+  if (container.nodeType === 1 && typeof document.caretRangeFromPoint === 'function') {
+    try {
+      const caretRect = range.getBoundingClientRect();
+      if (caretRect && (caretRect.width > 0 || caretRect.height > 0)) {
+        const y = caretRect.top + Math.max(1, caretRect.height / 2);
+        const probes = [caretRect.left + 1, caretRect.left, caretRect.left + 4];
+        for (const x of probes) {
+          const precise = document.caretRangeFromPoint(x, y);
+          if (
+            precise &&
+            precise.startContainer &&
+            precise.startContainer.nodeType === 3 &&
+            block.contains(precise.startContainer)
+          ) {
+            container = precise.startContainer;
+            startOffset = precise.startOffset;
+            break;
+          }
+        }
+      }
+    } catch (error) {
+      /* 反查失败时保留原始元素 Selection */
+    }
+  }
   const start = Number.parseInt(block.getAttribute('data-line'), 10);
   const end = Number.parseInt(block.getAttribute('data-line-end'), 10) || start;
   if (!Number.isFinite(start)) return null;
   if (block.classList && block.classList.contains('mn-table-wrap')) {
-    const tablePosition = tableSelectionToPosition(block, range, text);
+    const tablePosition = tableSelectionToPosition(block, { startContainer: container, startOffset }, text);
     if (tablePosition) return tablePosition;
   }
   const blockType = block.tagName.toLowerCase();
@@ -685,8 +754,8 @@ MN.previewSelectionToPosition = function previewSelectionToPosition(preview, val
   for (let index = 0; index < segments.length; index += 1) {
     const segment = segments[index];
     for (const part of segment.parts) {
-      if (part.node === container && range.startOffset >= part.start && range.startOffset <= part.end) {
-        const relative = range.startOffset - part.start;
+      if (part.node === container && startOffset >= part.start && startOffset <= part.end) {
+        const relative = startOffset - part.start;
         renderedIndex = part.partStart + Math.max(0, Math.min(part.end - part.start, relative));
         segmentIndex = index;
         break;

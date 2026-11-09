@@ -98,6 +98,18 @@ html[data-platform="darwin"] .mn-root{padding-top:var(--dsh-frame-top-clearance,
 .mn-sync-toggle:disabled:hover{color:var(--dsw-alias-label-secondary,#6b6b70);background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.06))}
 
 .mn-panes{flex:1 1 auto;min-height:0;display:flex;min-width:0}
+.mn-main-body{flex:1 1 auto;min-height:0;min-width:0;display:flex}
+.mn-nav-panel{flex:none;width:248px;min-width:190px;max-width:340px;min-height:0;display:flex;flex-direction:column;border-left:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.09));background:var(--dsw-alias-bg-layer-1,#f7f7f8)}
+.mn-nav-head{flex:none;height:34px;display:flex;align-items:center;gap:6px;padding:0 7px 0 12px;border-bottom:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.08));color:var(--dsw-alias-label-secondary,#6b6b70);background:var(--dsw-alias-bg-base,#fff)}
+.mn-nav-title{font-size:11px;font-weight:600;letter-spacing:.4px}
+.mn-nav-count{margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.05));font-size:10px;line-height:18px;text-align:center;font-variant-numeric:tabular-nums}
+.mn-nav-head .mn-iconbtn{width:22px;height:22px}
+.mn-nav-list{flex:1 1 auto;min-height:0;overflow:auto;padding:5px 6px 12px}
+.mn-nav-item{display:flex;align-items:flex-start;gap:6px;width:100%;border:0;background:transparent;border-radius:6px;padding:5px 7px;text-align:left;color:var(--dsw-alias-label-primary,#1d1d1f);font:inherit;font-size:12px;line-height:1.45;cursor:pointer}
+.mn-nav-item:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary,#1d1d1f) 6%,transparent)}
+.mn-nav-hash{flex:none;min-width:14px;font-family:"Cascadia Mono",Consolas,monospace;font-size:10px;color:var(--dsw-alias-label-secondary,#8a8a90);opacity:.7;padding-top:1px;text-align:right}
+.mn-nav-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mn-nav-empty{padding:22px 16px;text-align:center;font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-secondary,#8a8a90)}
 .mn-root[data-view="split"] .mn-panes{display:grid;grid-template-columns:minmax(220px,var(--mn-split-left,50%)) 8px minmax(220px,1fr)}
 .mn-pane{flex:1 1 50%;min-width:0;min-height:0;display:flex;flex-direction:column;position:relative;background:var(--dsw-alias-bg-base,#fff)}
 .mn-root[data-view="split"] .mn-pane{flex:1 1 auto}

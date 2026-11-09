@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
     /** 本包 Client 侧唯一命名空间：各 part 只往这里挂方法/组件。 */
     const MN = {
       id: 'markdown-notes',
-      version: '1.11.0',
+      version: '1.12.0',
       React,
       h,
       useState,
@@ -1647,6 +1647,9 @@ MN.Icon = function Icon(props) {
       children.push(h('rect', { key: 'a', x: 3.5, y: 4.5, width: 17, height: 15, rx: 2 }));
       children.push(h('path', { key: 'b', d: 'M3.5 9.5h17M3.5 14.5h17M9.2 4.5v15M14.8 4.5v15' }));
       break;
+    case 'nav':
+      children.push(h('path', { key: 'a', d: 'M4 6h2.6M4 12h2.6M4 18h2.6M10.5 6H20M10.5 12H20M10.5 18H20' }));
+      break;
     case 'task':
       children.push(h('rect', { key: 'a', x: 4, y: 4, width: 16, height: 16, rx: 3 }));
       children.push(h('path', { key: 'b', d: 'm8.3 12.2 2.4 2.5 5-5.3' }));
@@ -1764,6 +1767,18 @@ html[data-platform="darwin"] .mn-root{padding-top:var(--dsh-frame-top-clearance,
 .mn-sync-toggle:disabled:hover{color:var(--dsw-alias-label-secondary,#6b6b70);background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.06))}
 
 .mn-panes{flex:1 1 auto;min-height:0;display:flex;min-width:0}
+.mn-main-body{flex:1 1 auto;min-height:0;min-width:0;display:flex}
+.mn-nav-panel{flex:none;width:248px;min-width:190px;max-width:340px;min-height:0;display:flex;flex-direction:column;border-left:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.09));background:var(--dsw-alias-bg-layer-1,#f7f7f8)}
+.mn-nav-head{flex:none;height:34px;display:flex;align-items:center;gap:6px;padding:0 7px 0 12px;border-bottom:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.08));color:var(--dsw-alias-label-secondary,#6b6b70);background:var(--dsw-alias-bg-base,#fff)}
+.mn-nav-title{font-size:11px;font-weight:600;letter-spacing:.4px}
+.mn-nav-count{margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.05));font-size:10px;line-height:18px;text-align:center;font-variant-numeric:tabular-nums}
+.mn-nav-head .mn-iconbtn{width:22px;height:22px}
+.mn-nav-list{flex:1 1 auto;min-height:0;overflow:auto;padding:5px 6px 12px}
+.mn-nav-item{display:flex;align-items:flex-start;gap:6px;width:100%;border:0;background:transparent;border-radius:6px;padding:5px 7px;text-align:left;color:var(--dsw-alias-label-primary,#1d1d1f);font:inherit;font-size:12px;line-height:1.45;cursor:pointer}
+.mn-nav-item:hover{background:color-mix(in srgb,var(--dsw-alias-label-primary,#1d1d1f) 6%,transparent)}
+.mn-nav-hash{flex:none;min-width:14px;font-family:"Cascadia Mono",Consolas,monospace;font-size:10px;color:var(--dsw-alias-label-secondary,#8a8a90);opacity:.7;padding-top:1px;text-align:right}
+.mn-nav-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mn-nav-empty{padding:22px 16px;text-align:center;font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-secondary,#8a8a90)}
 .mn-root[data-view="split"] .mn-panes{display:grid;grid-template-columns:minmax(220px,var(--mn-split-left,50%)) 8px minmax(220px,1fr)}
 .mn-pane{flex:1 1 50%;min-width:0;min-height:0;display:flex;flex-direction:column;position:relative;background:var(--dsw-alias-bg-base,#fff)}
 .mn-root[data-view="split"] .mn-pane{flex:1 1 auto}
@@ -2899,6 +2914,48 @@ function renderedPositionAt(segment, index) {
  * 光标之后最近的文本字符，避免整个映射退回粗糙的行比例估算。
  */
 function renderedIndexForRange(segments, range) {
+  const allParts = [];
+  for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+    for (const part of segments[segmentIndex].parts) allParts.push({ segmentIndex, part });
+  }
+  const container = range.startContainer;
+  // Selection 落在元素节点时（常见于点击列表圆点 / 行间空白），
+  // 按 container.childNodes[startOffset] 的位置选择下一段或上一段的文本。
+  if (container && container.nodeType === 1 && container.childNodes) {
+    const inside = (node, ancestor) => {
+      let current = node;
+      while (current) {
+        if (current === ancestor) return true;
+        current = current.parentElement;
+      }
+      return false;
+    };
+    const children = Array.from(container.childNodes);
+    const offset = Math.max(0, Math.min(children.length, Number(range.startOffset) || 0));
+    const indexes = [];
+    if (offset < children.length) indexes.push(offset);
+    if (offset > 0) indexes.push(offset - 1);
+    for (const childIndex of indexes) {
+      const child = children[childIndex];
+      if (!child) continue;
+      const candidates = allParts.filter(
+        ({ part }) => part.node === child || inside(part.node, child),
+      );
+      if (candidates.length === 0) continue;
+      const chosen = childIndex >= offset ? candidates[0] : candidates[candidates.length - 1];
+      return {
+        segmentIndex: chosen.segmentIndex,
+        renderedIndex:
+          childIndex >= offset
+            ? chosen.part.partStart
+            : chosen.part.partStart + (chosen.part.end - chosen.part.start),
+      };
+    }
+    const inContainer = allParts.filter(({ part }) => inside(part.node, container));
+    if (inContainer.length > 0) {
+      return { segmentIndex: inContainer[0].segmentIndex, renderedIndex: inContainer[0].part.partStart };
+    }
+  }
   for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
     const segment = segments[segmentIndex];
     for (const part of segment.parts) {
@@ -3307,16 +3364,43 @@ MN.previewSelectionToPosition = function previewSelectionToPosition(preview, val
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return null;
   const range = selection.getRangeAt(0);
-  const container = range.startContainer;
+  let container = range.startContainer;
+  let startOffset = range.startOffset;
   if (!preview.contains(container)) return null;
   const element = container.nodeType === 1 ? container : container.parentElement;
   const block = element && typeof element.closest === 'function' ? element.closest('[data-line]') : null;
   if (!block || !preview.contains(block)) return null;
+  // 某些列表 / 布局点击会让 Selection 落在 <li>/<ul> 元素节点上。
+  // 用点击位置反查一次精确文本节点，避免按元素节点只能退化为“第一/最后一段”。
+  if (container.nodeType === 1 && typeof document.caretRangeFromPoint === 'function') {
+    try {
+      const caretRect = range.getBoundingClientRect();
+      if (caretRect && (caretRect.width > 0 || caretRect.height > 0)) {
+        const y = caretRect.top + Math.max(1, caretRect.height / 2);
+        const probes = [caretRect.left + 1, caretRect.left, caretRect.left + 4];
+        for (const x of probes) {
+          const precise = document.caretRangeFromPoint(x, y);
+          if (
+            precise &&
+            precise.startContainer &&
+            precise.startContainer.nodeType === 3 &&
+            block.contains(precise.startContainer)
+          ) {
+            container = precise.startContainer;
+            startOffset = precise.startOffset;
+            break;
+          }
+        }
+      }
+    } catch (error) {
+      /* 反查失败时保留原始元素 Selection */
+    }
+  }
   const start = Number.parseInt(block.getAttribute('data-line'), 10);
   const end = Number.parseInt(block.getAttribute('data-line-end'), 10) || start;
   if (!Number.isFinite(start)) return null;
   if (block.classList && block.classList.contains('mn-table-wrap')) {
-    const tablePosition = tableSelectionToPosition(block, range, text);
+    const tablePosition = tableSelectionToPosition(block, { startContainer: container, startOffset }, text);
     if (tablePosition) return tablePosition;
   }
   const blockType = block.tagName.toLowerCase();
@@ -3329,8 +3413,8 @@ MN.previewSelectionToPosition = function previewSelectionToPosition(preview, val
   for (let index = 0; index < segments.length; index += 1) {
     const segment = segments[index];
     for (const part of segment.parts) {
-      if (part.node === container && range.startOffset >= part.start && range.startOffset <= part.end) {
-        const relative = range.startOffset - part.start;
+      if (part.node === container && startOffset >= part.start && startOffset <= part.end) {
+        const relative = startOffset - part.start;
         renderedIndex = part.partStart + Math.max(0, Math.min(part.end - part.start, relative));
         segmentIndex = index;
         break;
@@ -4591,6 +4675,48 @@ MN.Toolbar = function Toolbar(props) {
  * @module @local/markdown-notes/src/client/50-page
  */
 
+/** 把标题行里的常见 Markdown 标记去掉，得到纯文本目录标题。 */
+function headingPlainText(raw) {
+  return String(raw || '')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/<[^>]*>/g, '')
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')
+    .replace(/(\*|_)(.*?)\1/g, '$2')
+    .replace(/~~(.*?)~~/g, '$1')
+    .replace(/==(.*?)==/g, '$1')
+    .replace(/\\([\\`*_{}\[\]()#+.!>-])/g, '$1')
+    .replace(/\s+#+\s*$/, '')
+    .trim();
+}
+
+/** 提取 Markdown 的 # 标题（跳过 fenced code block 里的伪标题）。 */
+function extractHeadings(markdown) {
+  const lines = String(markdown === undefined || markdown === null ? '' : markdown).split('\n');
+  const headings = [];
+  let fence = '';
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const fenceMatch = /^\s*(```+|~~~+)/.exec(line);
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0];
+      if (fence === '') fence = marker;
+      else if (fence === marker) fence = '';
+      continue;
+    }
+    if (fence !== '') continue;
+    const heading = /^\s{0,3}(#{1,6})\s+(.*)$/.exec(line);
+    if (!heading) continue;
+    const text = headingPlainText(heading[2]);
+    if (text === '') continue;
+    headings.push({ level: heading[1].length, text, line: index + 1 });
+  }
+  return headings;
+}
+
+MN.extractHeadings = extractHeadings;
+
 /** 读取 UI 偏好。 */
 function loadUiPrefs() {
   const raw = MN.readLS(MN.LS_KEY, {});
@@ -4606,7 +4732,8 @@ function loadUiPrefs() {
     raw && typeof raw.sideWidth === 'number' && Number.isFinite(raw.sideWidth)
       ? Math.min(560, Math.max(180, raw.sideWidth))
       : null;
-  return { view, expanded, syncScroll, splitRatio, sideCollapsed, sideWidth };
+  const navOpen = Boolean(raw && raw.navOpen === true);
+  return { view, expanded, syncScroll, splitRatio, sideCollapsed, sideWidth, navOpen };
 }
 
 /** 把时间戳格式化为 HH:mm。 */
@@ -4825,6 +4952,7 @@ MN.AppPage = function AppPage(props) {
   const [splitRatio, setSplitRatio] = useState(initialPrefs.splitRatio);
   const [sideCollapsed, setSideCollapsed] = useState(initialPrefs.sideCollapsed);
   const [sideWidth, setSideWidth] = useState(initialPrefs.sideWidth);
+  const [navOpen, setNavOpen] = useState(initialPrefs.navOpen);
   const [ghostCaret, setGhostCaret] = useState(null);
   const [query, setQuery] = useState('');
   const [searchResult, setSearchResult] = useState(null);
@@ -5167,13 +5295,24 @@ MN.AppPage = function AppPage(props) {
     return () => document.removeEventListener('selectionchange', onSelectionChange);
   }, [view, scheduleGhostCaret]);
 
-  // 面板尺寸变化 / 内容变化后重新定位。
+  // 面板尺寸变化 / 内容变化后重新定位。除窗口缩放外，文件栏调宽、
+  // 分栏拖动也会改变编辑器实际宽度，需要监听 pane 自身尺寸。
   useEffect(() => {
     if (view !== 'split') return undefined;
     const onResize = () => scheduleGhostCaret();
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [view, scheduleGhostCaret]);
+    let observer = null;
+    const panes = panesRef.current;
+    if (panes && typeof ResizeObserver === 'function') {
+      observer = new ResizeObserver(onResize);
+      observer.observe(panes);
+      panes.querySelectorAll('.mn-pane').forEach((pane) => observer.observe(pane));
+    }
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (observer) observer.disconnect();
+    };
+  }, [view, scheduleGhostCaret, note !== null]);
 
   const noteContentForGhost = note ? note.content : null;
   useEffect(() => {
@@ -5293,12 +5432,13 @@ MN.AppPage = function AppPage(props) {
         splitRatio,
         sideCollapsed,
         sideWidth,
+        navOpen,
         expanded: Array.from(expanded),
         lastOpened: lastOpenRef.current,
       });
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [view, syncScroll, splitRatio, sideCollapsed, sideWidth, expanded]);
+  }, [view, syncScroll, splitRatio, sideCollapsed, sideWidth, navOpen, expanded]);
 
   // Ctrl/Cmd + S 立即保存。
   useEffect(() => {
@@ -6036,12 +6176,13 @@ MN.AppPage = function AppPage(props) {
     function finish() {
       cleanup();
       setSideWidth(Math.round(latest));
+      scheduleGhostCaret();
     }
     sideDragCleanupRef.current = cleanup;
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', finish);
     window.addEventListener('pointercancel', finish);
-  }, []);
+  }, [scheduleGhostCaret]);
 
   const handleSideResizeKeyDown = useCallback(
     (event) => {
@@ -6304,6 +6445,99 @@ MN.AppPage = function AppPage(props) {
   })();
 
   const toolbarVisible = note !== null;
+  const outlineHeadings = note ? extractHeadings(note.content) : [];
+
+  /** 点击目录项：分别把原文 textarea 和渲染视图滚动到标题所在行。 */
+  const scrollToOutlineLine = (line) => {
+    // 目录跳转的两次滚动是显式定位，短暂压住同步滚动，避免被回环覆盖。
+    scrollSyncRef.current.lockUntil = Date.now() + 120;
+    const value = noteRef.current ? noteRef.current.content : '';
+    const source = sourceRef.current;
+    if (source) {
+      const offset = MN.sourceOffsetFromPosition(value, line, 0);
+      let delta = null;
+      try {
+        const rect = MN.measureSourceCaret(source, sourceMirrorRef.current, offset);
+        if (rect) delta = rect.top - source.getBoundingClientRect().top;
+      } catch (error) {
+        delta = null;
+      }
+      if (delta === null) {
+        const style = window.getComputedStyle(source);
+        const lineHeight = Number.parseFloat(style.lineHeight) || 22.75;
+        const paddingTop = Number.parseFloat(style.paddingTop) || 0;
+        delta = paddingTop + (line - 1) * lineHeight - source.scrollTop;
+      }
+      source.scrollTop = Math.max(0, source.scrollTop + delta - 20);
+    }
+    const preview = getPreviewScrollElement();
+    if (preview) {
+      const blocks = preview.querySelectorAll('[data-line]');
+      let target = null;
+      for (const block of blocks) {
+        const start = Number.parseInt(block.getAttribute('data-line'), 10);
+        const end = Number.parseInt(block.getAttribute('data-line-end'), 10) || start;
+        if (!Number.isFinite(start)) continue;
+        if (start === line) {
+          target = block;
+          break;
+        }
+        if (start <= line && line <= end) target = block;
+      }
+      if (target) {
+        const delta = target.getBoundingClientRect().top - preview.getBoundingClientRect().top;
+        preview.scrollTop = Math.max(0, preview.scrollTop + delta - 12);
+      }
+    }
+  };
+
+  const navPanel = navOpen
+    ? h(
+        'aside',
+        { className: 'mn-nav-panel', 'aria-label': t('nav.title') },
+        h(
+          'div',
+          { className: 'mn-nav-head' },
+          h(MN.Icon, { name: 'book', size: 14 }),
+          h('span', { className: 'mn-nav-title' }, t('nav.title')),
+          h('span', { className: 'mn-nav-count' }, String(outlineHeadings.length)),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'mn-iconbtn',
+              title: t('nav.close'),
+              'aria-label': t('nav.close'),
+              onClick: () => setNavOpen(false),
+            },
+            h(MN.Icon, { name: 'close', size: 12 }),
+          ),
+        ),
+        outlineHeadings.length > 0
+          ? h(
+              'div',
+              { className: 'mn-nav-list', role: 'list' },
+              outlineHeadings.map((item, index) =>
+                h(
+                  'button',
+                  {
+                    key: item.line + ':' + index,
+                    type: 'button',
+                    className: 'mn-nav-item',
+                    role: 'link',
+                    'data-level': item.level,
+                    title: item.text,
+                    style: { paddingLeft: 10 + (item.level - 1) * 14 + 'px' },
+                    onClick: () => scrollToOutlineLine(item.line),
+                  },
+                  h('span', { className: 'mn-nav-hash' }, '#'.repeat(item.level)),
+                  h('span', { className: 'mn-nav-text' }, item.text),
+                ),
+              ),
+            )
+          : h('div', { className: 'mn-nav-empty' }, t('nav.empty')),
+      )
+    : null;
 
   return h(
     'div',
@@ -6603,6 +6837,19 @@ MN.AppPage = function AppPage(props) {
                   'button',
                   {
                     type: 'button',
+                    className: 'mn-sync-toggle mn-nav-toggle',
+                    'data-on': navOpen ? 'true' : 'false',
+                    'aria-pressed': navOpen ? 'true' : 'false',
+                    title: t('nav.title'),
+                    onClick: () => setNavOpen((open) => !open),
+                  },
+                  h(MN.Icon, { name: 'nav', size: 13 }),
+                  h('span', null, t('nav.label')),
+                ),
+                h(
+                  'button',
+                  {
+                    type: 'button',
                     className: 'mn-sync-toggle',
                     'data-on': syncScroll ? 'true' : 'false',
                     'aria-pressed': syncScroll ? 'true' : 'false',
@@ -6623,6 +6870,9 @@ MN.AppPage = function AppPage(props) {
                 })
               : null,
             h(
+              'div',
+              { className: 'mn-main-body' },
+              h(
               'div',
               {
                 className: 'mn-panes',
@@ -6701,6 +6951,8 @@ MN.AppPage = function AppPage(props) {
                     }),
                   )
                 : null,
+            ),
+              navPanel,
             ),
           )
         : h(
@@ -6828,6 +7080,10 @@ MN.DICTIONARIES = {
     'sync.label': '同步滚动',
     'sync.title': '启用后左右两侧滚动联动，按内容位置对齐（仅分栏模式生效）',
     'sync.splitOnly': '同步滚动仅在分栏模式下生效',
+    'nav.title': '导航',
+    'nav.label': '导航',
+    'nav.close': '关闭导航',
+    'nav.empty': '当前文档没有 # 标题',
     'splitter.label': '调整左右宽度',
     'splitter.title': '拖动调整左右宽度；双击恢复 50/50；聚焦后用左右方向键微调',
     'pane.source': 'Markdown 原文',
@@ -6985,6 +7241,10 @@ MN.DICTIONARIES = {
     'sync.label': 'Sync scroll',
     'sync.title': 'Link both panes by content position (split view only)',
     'sync.splitOnly': 'Sync scroll works in split view only',
+    'nav.title': 'Navigation',
+    'nav.label': 'Navigation',
+    'nav.close': 'Close navigation',
+    'nav.empty': 'No # headings in this document',
     'splitter.label': 'Resize panes',
     'splitter.title': 'Drag to resize panes; double-click for 50/50; focus and use arrow keys to fine-tune',
     'pane.source': 'Markdown source',
