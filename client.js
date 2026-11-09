@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
     /** 本包 Client 侧唯一命名空间：各 part 只往这里挂方法/组件。 */
     const MN = {
       id: 'markdown-notes',
-      version: '1.14.2',
+      version: '1.14.3',
       React,
       h,
       useState,
@@ -365,7 +365,7 @@ MN.md = (function () {
       options +
       '</select>' +
       '</span>' +
-      '<button type="button" class="mn-code-toggle" contenteditable="false" aria-expanded="true" title="收起代码块" aria-label="收起代码块"><span class="mn-code-toggle-text">收起</span></button>' +
+      '<button type="button" class="mn-code-toggle" contenteditable="false" aria-expanded="true" title="收起代码块" aria-label="收起代码块"><span class="mn-code-toggle-text">▾ 收起</span></button>' +
       '</div>'
     );
   }
@@ -4164,13 +4164,13 @@ MN.RichEditor = function RichEditor(props) {
         toggle.setAttribute('aria-expanded', 'true');
         toggle.setAttribute('title', '收起代码块');
         toggle.setAttribute('aria-label', '收起代码块');
-        if (label) label.textContent = '收起';
+        if (label) label.textContent = '▾ 收起';
       } else {
         block.setAttribute('data-collapsed', 'true');
         toggle.setAttribute('aria-expanded', 'false');
         toggle.setAttribute('title', '展开代码块');
         toggle.setAttribute('aria-label', '展开代码块');
-        if (label) label.textContent = '展开';
+        if (label) label.textContent = '▸ 展开';
       }
     };
     editor.addEventListener('change', listener, true);

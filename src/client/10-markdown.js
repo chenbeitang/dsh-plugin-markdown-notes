@@ -65,7 +65,7 @@ MN.md = (function () {
       options +
       '</select>' +
       '</span>' +
-      '<button type="button" class="mn-code-toggle" contenteditable="false" aria-expanded="true" title="收起代码块" aria-label="收起代码块"><span class="mn-code-toggle-text">收起</span></button>' +
+      '<button type="button" class="mn-code-toggle" contenteditable="false" aria-expanded="true" title="收起代码块" aria-label="收起代码块"><span class="mn-code-toggle-text">▾ 收起</span></button>' +
       '</div>'
     );
   }

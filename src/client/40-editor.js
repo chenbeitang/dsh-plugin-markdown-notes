@@ -1493,13 +1493,13 @@ MN.RichEditor = function RichEditor(props) {
         toggle.setAttribute('aria-expanded', 'true');
         toggle.setAttribute('title', '收起代码块');
         toggle.setAttribute('aria-label', '收起代码块');
-        if (label) label.textContent = '收起';
+        if (label) label.textContent = '▾ 收起';
       } else {
         block.setAttribute('data-collapsed', 'true');
         toggle.setAttribute('aria-expanded', 'false');
         toggle.setAttribute('title', '展开代码块');
         toggle.setAttribute('aria-label', '展开代码块');
-        if (label) label.textContent = '展开';
+        if (label) label.textContent = '▸ 展开';
       }
     };
     editor.addEventListener('change', listener, true);

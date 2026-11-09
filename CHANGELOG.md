@@ -1,12 +1,17 @@
 # 版本说明 · @local/markdown-notes
 
-**当前版本：1.14.2**（2026-11-09）  
+**当前版本：1.14.3**（2026-11-09）  
 **运行环境**：DeepSeek Harness Web GUI（左侧栏面板 + Host HTTP API）  
 **入口**：左侧栏「Markdown 笔记」图标（面板 id `markdown-notes`）
 
 本文件记录每个版本的定位、功能变化与已知边界；安装与使用说明见 [README.md](README.md)。
 
 ## 版本历史
+
+### 1.14.3 — 代码块折叠按钮文案
+
+- 展开状态显示「▾ 收起」，收起状态显示「▸ 展开」。
+- 附带 aria-label / title 同步，操作逻辑不变。
 
 ### 1.14.2 — 表格右键菜单文案
 
@@ -299,4 +304,4 @@ node tests/client-render.test.mjs
 node tests/client-boot.test.mjs
 ```
 
-最近一次验证（1.14.2）：全部测试通过；仅菜单文案调整，不影响表格编辑与光标映射。
+最近一次验证（1.14.3）：全部测试通过；仅调整代码块折叠按钮文案，不影响表格与光标功能。
