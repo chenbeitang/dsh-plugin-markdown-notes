@@ -87,6 +87,28 @@ try {
   }
   assert.equal(rejectedMove, true);
 
+  const noteA = await store.createNote('', 'A排序');
+  const noteB = await store.createNote('', 'B排序');
+  const reordered = await store.reorderEntry(noteB.path, noteA.path, 'before');
+  assert.equal(reordered.position, 'before');
+  state = await store.state();
+  const rootNotes = state.tree.filter((node) => node.type === 'note').map((node) => node.fileName);
+  assert.ok(rootNotes.indexOf('B排序.md') < rootNotes.indexOf('A排序.md'));
+  store.meta = null;
+  state = await store.state();
+  const persistedRootNotes = state.tree.filter((node) => node.type === 'note').map((node) => node.fileName);
+  assert.ok(persistedRootNotes.indexOf('B排序.md') < persistedRootNotes.indexOf('A排序.md'));
+
+  let rejectedReorder = false;
+  try {
+    await store.reorderEntry(noteA.path, '项目/子目录', 'before');
+  } catch (error) {
+    rejectedReorder = error instanceof NotesError && error.code === 'invalid-target';
+  }
+  assert.equal(rejectedReorder, true);
+  await store.deleteEntry(noteA.path);
+  await store.deleteEntry(noteB.path);
+
   const uploaded = await store.uploadImage({ name: 'pixel.png', mime: 'image/png', data: PNG_PIXEL });
   assert.match(uploaded.path, /^assets\/\d{4}-\d{2}\//);
   const media = await store.readMedia(uploaded.path);

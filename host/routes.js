@@ -26,6 +26,7 @@ export const API_ROUTES = Object.freeze([
   'POST /api/entry/rename',
   'POST /api/entry/delete',
   'POST /api/entry/move',
+  'POST /api/entry/reorder',
   'POST /api/entry/reveal',
   'POST /api/favorite',
   'POST /api/meta',
@@ -167,6 +168,14 @@ export function createRouter(deps) {
         if (!parsed.ok) return failure(new NotesError('invalid-body', parsed.error));
         const moved = await deps.store.moveEntry(parsed.value.path, parsed.value.targetDir);
         return success({ entry: moved });
+      }
+
+      if (rest === '/api/entry/reorder') {
+        if (method !== 'POST') return failure(new NotesError('method', '不支持的请求方法'));
+        const parsed = parseJsonBody(request.body);
+        if (!parsed.ok) return failure(new NotesError('invalid-body', parsed.error));
+        const reordered = await deps.store.reorderEntry(parsed.value.path, parsed.value.target, parsed.value.position);
+        return success({ entry: reordered });
       }
 
       if (rest === '/api/entry/reveal') {

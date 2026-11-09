@@ -276,6 +276,7 @@ check('AppPage renders the note workspace', () => {
     0.5,
     false,
     null,
+    null,
     '',
     null,
     false,
@@ -298,6 +299,7 @@ check('AppPage renders the note workspace', () => {
   assert.ok(hasClass(element, 'mn-rich'));
   assert.ok(hasClass(element, 'mn-sync-toggle'));
   assert.ok(hasClass(element, 'mn-splitter'));
+  assert.ok(hasClass(element, 'mn-side-resizer'));
   const text = [];
   collectText(element, text);
   assert.ok(text.join(' ').includes('周报'));
@@ -306,7 +308,7 @@ check('AppPage renders the note workspace', () => {
 check('AppPage renders the empty state', () => {
   const env = makeEnv();
   const emptyState = { settings: fakeSettings, tree: [], stats: { notes: 0, folders: 0 }, favorites: [], lastOpened: null };
-  env.reset([false, '', emptyState, new Set(), 'source', false, 0.5, false, null, '', null, false, null, false, 'saved', null, '', 'source', null, null, null, 0]);
+  env.reset([false, '', emptyState, new Set(), 'source', false, 0.5, false, null, null, '', null, false, null, false, 'saved', null, '', 'source', null, null, null, 0]);
   const element = deepRender(env, env.MN.AppPage({ pickDirectory: null }));
   assert.ok(hasClass(element, 'mn-root'));
   assert.ok(hasClass(element, 'mn-empty'));
@@ -323,6 +325,7 @@ check('AppPage collapses and expands the file sidebar', () => {
     false,
     0.5,
     true,
+    null,
     null,
     '',
     null,

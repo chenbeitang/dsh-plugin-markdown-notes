@@ -27,14 +27,16 @@ MN.TreeNode = function TreeNode(props) {
           'aria-expanded': open ? 'true' : 'false',
           'data-dragging': props.draggingPath === node.path ? 'true' : undefined,
           'data-drop-target': props.dropTarget === node.path ? 'true' : undefined,
+          'data-drop-position':
+            props.dropIndicator && props.dropIndicator.path === node.path ? props.dropIndicator.position : undefined,
           title: node.path,
           onClick: () => props.onToggle(node.path),
           onContextMenu: (event) => props.onMenu(event, node),
           onDragStart: (event) => props.onDragStart(event, node),
           onDragEnd: props.onDragEnd,
-          onDragOver: (event) => props.onDragOver(event, node.path),
-          onDragLeave: (event) => props.onDragLeave(event, node.path),
-          onDrop: (event) => props.onDrop(event, node.path),
+          onDragOver: (event) => props.onDragOver(event, node),
+          onDragLeave: (event) => props.onDragLeave(event, node),
+          onDrop: (event) => props.onDrop(event, node),
           onKeyDown: (event) => {
             if (event.key === 'Enter' || event.key === ' ') {
               event.preventDefault();
@@ -120,6 +122,7 @@ MN.TreeNode = function TreeNode(props) {
                     onFavorite: props.onFavorite,
                     draggingPath: props.draggingPath,
                     dropTarget: props.dropTarget,
+                    dropIndicator: props.dropIndicator,
                     onDragStart: props.onDragStart,
                     onDragEnd: props.onDragEnd,
                     onDragOver: props.onDragOver,
@@ -140,6 +143,8 @@ MN.TreeNode = function TreeNode(props) {
       style: { paddingLeft: 4 + depth * 14 },
       'data-active': active ? 'true' : 'false',
       'data-dragging': props.draggingPath === node.path ? 'true' : undefined,
+      'data-drop-position':
+        props.dropIndicator && props.dropIndicator.path === node.path ? props.dropIndicator.position : undefined,
       role: 'button',
       tabIndex: 0,
       draggable: true,
@@ -148,6 +153,9 @@ MN.TreeNode = function TreeNode(props) {
       onContextMenu: (event) => props.onMenu(event, node),
       onDragStart: (event) => props.onDragStart(event, node),
       onDragEnd: props.onDragEnd,
+      onDragOver: (event) => props.onDragOver(event, node),
+      onDragLeave: (event) => props.onDragLeave(event, node),
+      onDrop: (event) => props.onDrop(event, node),
       onKeyDown: (event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
@@ -201,6 +209,7 @@ MN.TreeView = function TreeView(props) {
   const t = MN.t;
   const [draggingPath, setDraggingPath] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
+  const [dropIndicator, setDropIndicator] = useState(null);
   const favoriteNotes = useMemo(() => {
     const out = [];
     for (const path of props.favorites) {
@@ -227,6 +236,7 @@ MN.TreeView = function TreeView(props) {
     if (!event.dataTransfer) return;
     setDraggingPath(node.path);
     setDropTarget(null);
+    setDropIndicator(null);
     event.dataTransfer.effectAllowed = 'move';
     try {
       event.dataTransfer.setData('text/plain', node.path);
@@ -238,34 +248,85 @@ MN.TreeView = function TreeView(props) {
   const handleDragEnd = () => {
     setDraggingPath(null);
     setDropTarget(null);
+    setDropIndicator(null);
   };
 
-  const handleDragOver = (event, targetPath) => {
-    if (!canDropOn(targetPath)) {
-      if (event.dataTransfer) event.dataTransfer.dropEffect = 'none';
-      if (dropTarget === targetPath) setDropTarget(null);
+  /**
+   * 同一目录内的行上 / 下缘用于排序；文件夹行中间区域用于「移动到该文件夹」。
+   * 笔记行没有「移入」语义，整行都作为排序目标。
+   */
+  const reorderPositionAt = (event, node) => {
+    if (!draggingPath || node.path === draggingPath) return null;
+    const sourceParent = MN.dirnameOf(draggingPath);
+    const targetParent = MN.dirnameOf(node.path);
+    if (sourceParent !== targetParent) return null;
+    const row = event.currentTarget;
+    const rect = row && typeof row.getBoundingClientRect === 'function' ? row.getBoundingClientRect() : null;
+    const ratio = rect && rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5;
+    if (node.type === 'folder') {
+      if (ratio >= 0.3 && ratio <= 0.7) return null;
+      return ratio < 0.5 ? 'before' : 'after';
+    }
+    return ratio < 0.5 ? 'before' : 'after';
+  };
+
+  const handleDragOver = (event, node) => {
+    if (!draggingPath) return;
+    const position = reorderPositionAt(event, node);
+    if (position !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      setDropTarget(null);
+      if (!dropIndicator || dropIndicator.path !== node.path || dropIndicator.position !== position) {
+        setDropIndicator({ path: node.path, position });
+      }
       return;
     }
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-    if (dropTarget !== targetPath) setDropTarget(targetPath);
+    if (node.type === 'folder' && canDropOn(node.path)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      setDropIndicator(null);
+      if (dropTarget !== node.path) setDropTarget(node.path);
+      return;
+    }
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'none';
+    if (dropTarget === node.path) setDropTarget(null);
+    if (dropIndicator && dropIndicator.path === node.path) setDropIndicator(null);
   };
 
-  const handleDragLeave = (event, targetPath) => {
+  const handleDragLeave = (event, node) => {
     const related = event.relatedTarget;
     if (related && event.currentTarget && event.currentTarget.contains(related)) return;
-    if (dropTarget === targetPath) setDropTarget(null);
+    if (dropTarget === node.path) setDropTarget(null);
+    if (dropIndicator && dropIndicator.path === node.path) setDropIndicator(null);
   };
 
-  const handleDrop = (event, targetPath) => {
-    if (!canDropOn(targetPath)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const source = draggingPath || (event.dataTransfer ? event.dataTransfer.getData('text/plain') : '');
-    setDraggingPath(null);
+  const handleDrop = (event, node) => {
+    if (!draggingPath) return;
+    const position = reorderPositionAt(event, node);
+    const source = draggingPath;
+    if (position !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      setDraggingPath(null);
+      setDropTarget(null);
+      setDropIndicator(null);
+      if (props.onReorder) props.onReorder(source, node.path, position);
+      return;
+    }
+    if (node.type === 'folder' && canDropOn(node.path)) {
+      event.preventDefault();
+      event.stopPropagation();
+      setDraggingPath(null);
+      setDropTarget(null);
+      setDropIndicator(null);
+      if (props.onMove) props.onMove(source, node.path);
+      return;
+    }
     setDropTarget(null);
-    if (source) props.onMove(source, targetPath);
+    setDropIndicator(null);
   };
 
   const rowProps = {
@@ -281,6 +342,7 @@ MN.TreeView = function TreeView(props) {
     onFavorite: props.onFavorite,
     draggingPath,
     dropTarget,
+    dropIndicator,
     onDragStart: handleDragStart,
     onDragEnd: handleDragEnd,
     onDragOver: handleDragOver,

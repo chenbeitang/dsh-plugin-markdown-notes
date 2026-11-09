@@ -160,6 +160,26 @@ function asNotesError(error) {
   return new NotesError('internal', '内部错误：' + (error instanceof Error ? error.message : String(error)));
 }
 
+/** 按元数据里记录的目录顺序排列节点；未记录的新条目保持原有默认顺序。 */
+function orderNodes(nodes, names) {
+  if (!Array.isArray(names) || names.length === 0) return nodes;
+  const rank = new Map();
+  for (let index = 0; index < names.length; index += 1) rank.set(names[index], index);
+  const ordered = [];
+  const rest = [];
+  for (const node of nodes) {
+    const name = node.type === 'folder' ? node.name : node.fileName || node.name;
+    if (rank.has(name)) ordered.push(node);
+    else rest.push(node);
+  }
+  ordered.sort((left, right) => {
+    const leftName = left.type === 'folder' ? left.name : left.fileName || left.name;
+    const rightName = right.type === 'folder' ? right.name : right.fileName || right.name;
+    return rank.get(leftName) - rank.get(rightName);
+  });
+  return ordered.concat(rest);
+}
+
 /**
  * 本地 Markdown 笔记仓库。
  */
@@ -273,7 +293,36 @@ export class NotesStore {
         lastOpened = null;
       }
     }
-    return { version: 1, favorites, lastOpened, updatedAt: Date.now() };
+    const orders = {};
+    if (input.orders && typeof input.orders === 'object' && !Array.isArray(input.orders)) {
+      let directoryCount = 0;
+      for (const [rawDirectory, rawNames] of Object.entries(input.orders)) {
+        if (directoryCount >= 500) break;
+        if (!Array.isArray(rawNames)) continue;
+        let directory;
+        try {
+          directory = normalizeRel(rawDirectory, { allowRoot: true });
+        } catch {
+          continue;
+        }
+        if (rawDirectory !== '' && directory === '') continue;
+        const names = [];
+        const seenNames = new Set();
+        for (const rawName of rawNames) {
+          if (typeof rawName !== 'string') continue;
+          const name = rawName.trim();
+          if (name === '' || name.length > 200 || name === '.' || name === '..') continue;
+          if (name.startsWith('.') || name.includes('/') || name.includes('\\')) continue;
+          if (seenNames.has(name)) continue;
+          seenNames.add(name);
+          names.push(name);
+          if (names.length >= 1000) break;
+        }
+        orders[directory] = names;
+        directoryCount += 1;
+      }
+    }
+    return { version: 1, favorites, lastOpened, orders, updatedAt: Date.now() };
   }
 
   async _saveMeta() {
@@ -299,7 +348,7 @@ export class NotesStore {
   }
 
   /** 收集目录树；隐藏点文件、根目录下的 assets / node_modules。 */
-  async _collectTree() {
+  async _collectTree(orders = {}) {
     const stats = { notes: 0, folders: 0, truncated: false };
     let budget = MAX_TREE_NODES;
     const walk = async (absDir, relDir, depth) => {
@@ -313,7 +362,7 @@ export class NotesStore {
       } catch {
         return [];
       }
-      const nodes = [];
+      let nodes = [];
       for (const entry of entries) {
         if (budget <= 0) {
           stats.truncated = true;
@@ -354,6 +403,7 @@ export class NotesStore {
         if (left.type !== right.type) return left.type === 'folder' ? -1 : 1;
         return left.name.localeCompare(right.name, 'zh-Hans-CN', { numeric: true, sensitivity: 'base' });
       });
+      nodes = orderNodes(nodes, orders[relDir]);
       return nodes;
     };
     const tree = await walk(this.root, '', 0);
@@ -398,7 +448,7 @@ export class NotesStore {
   async state() {
     await this.ensure();
     const meta = await this._loadMeta();
-    const collected = await this._collectTree();
+    const collected = await this._collectTree(meta.orders);
     return {
       settings: this.getSettings(),
       tree: collected.tree,
@@ -636,6 +686,65 @@ export class NotesStore {
         type: info.isDirectory() ? 'folder' : 'note',
         targetDir: targetDir.rel,
       };
+    });
+  }
+
+  /** 读取某目录下按当前排序规则（元数据 + 默认排序）排列的子项名称。 */
+  async _listChildNames(relDir, orders) {
+    const absDir = relDir === '' ? this.root : resolveRel(this.root, relDir).abs;
+    let entries;
+    try {
+      entries = await fsp.readdir(absDir, { withFileTypes: true });
+    } catch (error) {
+      throw asNotesError(error);
+    }
+    const rows = [];
+    for (const entry of entries) {
+      const name = entry.name;
+      if (name.startsWith('.') || entry.isSymbolicLink()) continue;
+      if (relDir === '' && (name === ASSETS_DIR || name === 'node_modules')) continue;
+      if (entry.isDirectory()) {
+        rows.push({ type: 'folder', name });
+      } else if (entry.isFile() && isNoteName(name)) {
+        rows.push({ type: 'note', name: displayNameOf(name), fileName: name });
+      }
+    }
+    rows.sort((left, right) => {
+      if (left.type !== right.type) return left.type === 'folder' ? -1 : 1;
+      return left.name.localeCompare(right.name, 'zh-Hans-CN', { numeric: true, sensitivity: 'base' });
+    });
+    return orderNodes(rows, orders && orders[relDir]).map((row) => row.fileName || row.name);
+  }
+
+  /** 在同一目录内把条目移动到目标条目前面 / 后面，并持久化自定义顺序。 */
+  async reorderEntry(rel, targetRel, position) {
+    return this._enqueue(async () => {
+      await this.ensure();
+      const source = resolveRel(this.root, rel);
+      const target = resolveRel(this.root, targetRel);
+      if (source.rel === '' || target.rel === '') throw new NotesError('invalid-path', '不能重排笔记根目录');
+      if (source.rel === target.rel) throw new NotesError('noop', '不能拖到自身位置');
+      const sourceParent = source.rel.includes('/') ? source.rel.slice(0, source.rel.lastIndexOf('/')) : '';
+      const targetParent = target.rel.includes('/') ? target.rel.slice(0, target.rel.lastIndexOf('/')) : '';
+      if (sourceParent !== targetParent) {
+        throw new NotesError('invalid-target', '只能在同一文件夹内拖动排序');
+      }
+      const meta = await this._loadMeta();
+      const names = await this._listChildNames(sourceParent, meta.orders);
+      const sourceName = path.basename(source.abs);
+      const targetName = path.basename(target.abs);
+      const sourceIndex = names.indexOf(sourceName);
+      if (sourceIndex < 0) throw new NotesError('not-found', '拖动的条目不存在');
+      names.splice(sourceIndex, 1);
+      const targetIndex = names.indexOf(targetName);
+      if (targetIndex < 0) throw new NotesError('not-found', '目标条目不存在');
+      const where = position === 'after' ? 'after' : 'before';
+      const insertAt = where === 'after' ? targetIndex + 1 : targetIndex;
+      names.splice(insertAt, 0, sourceName);
+      if (!meta.orders || typeof meta.orders !== 'object') meta.orders = {};
+      meta.orders[sourceParent] = names;
+      await this._saveMeta();
+      return { path: source.rel, target: target.rel, position: where, order: names.slice() };
     });
   }
 

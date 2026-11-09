@@ -15,7 +15,11 @@ function loadUiPrefs() {
       ? raw.splitRatio
       : 0.5;
   const sideCollapsed = Boolean(raw && raw.sideCollapsed === true);
-  return { view, expanded, syncScroll, splitRatio, sideCollapsed };
+  const sideWidth =
+    raw && typeof raw.sideWidth === 'number' && Number.isFinite(raw.sideWidth)
+      ? Math.min(560, Math.max(180, raw.sideWidth))
+      : null;
+  return { view, expanded, syncScroll, splitRatio, sideCollapsed, sideWidth };
 }
 
 /** 把时间戳格式化为 HH:mm。 */
@@ -233,6 +237,7 @@ MN.AppPage = function AppPage(props) {
   const [syncScroll, setSyncScroll] = useState(initialPrefs.syncScroll);
   const [splitRatio, setSplitRatio] = useState(initialPrefs.splitRatio);
   const [sideCollapsed, setSideCollapsed] = useState(initialPrefs.sideCollapsed);
+  const [sideWidth, setSideWidth] = useState(initialPrefs.sideWidth);
   const [ghostCaret, setGhostCaret] = useState(null);
   const [query, setQuery] = useState('');
   const [searchResult, setSearchResult] = useState(null);
@@ -265,6 +270,9 @@ MN.AppPage = function AppPage(props) {
   const panesRef = useRef(null);
   const splitDragCleanupRef = useRef(null);
   const splitClickRef = useRef({ time: 0, x: 0 });
+  const rootRef = useRef(null);
+  const sideRef = useRef(null);
+  const sideDragCleanupRef = useRef(null);
 
   const favoriteSet = useMemo(() => new Set(state.favorites || []), [state.favorites]);
   const allNotes = useMemo(() => MN.collectNotes(state.tree), [state.tree]);
@@ -697,12 +705,13 @@ MN.AppPage = function AppPage(props) {
         syncScroll,
         splitRatio,
         sideCollapsed,
+        sideWidth,
         expanded: Array.from(expanded),
         lastOpened: lastOpenRef.current,
       });
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [view, syncScroll, splitRatio, sideCollapsed, expanded]);
+  }, [view, syncScroll, splitRatio, sideCollapsed, sideWidth, expanded]);
 
   // Ctrl/Cmd + S 立即保存。
   useEffect(() => {
@@ -933,8 +942,26 @@ MN.AppPage = function AppPage(props) {
     [flushSave, refresh, showToast, t],
   );
 
-  /* ----------------------------- 搜索 ----------------------------- */
+  /** 同一文件夹内拖动排序：只调整目录顺序，不改变文件内容或路径。 */
+  const reorderEntry = useCallback(
+    async (sourcePath, targetPath, position) => {
+      try {
+        await MN.api.post('entry/reorder', { path: sourcePath, target: targetPath, position });
+        await refresh();
+        showToast(t('toast.reordered'), 'info');
+      } catch (error) {
+        showToast(error && error.message ? error.message : t('toast.reorderFailed'), 'error');
+        try {
+          await refresh();
+        } catch (refreshError) {
+          /* 忽略刷新失败 */
+        }
+      }
+    },
+    [refresh, showToast, t],
+  );
 
+  /* ----------------------------- 搜索 ----------------------------- */
   const runSearch = useCallback(async () => {
     const needle = query.trim();
     if (needle === '') {
@@ -1371,6 +1398,106 @@ MN.AppPage = function AppPage(props) {
     [],
   );
 
+  const sideWidthLimits = () => {
+    const root = rootRef.current;
+    const max = root ? Math.max(180, Math.min(560, Math.round(root.clientWidth * 0.45))) : 560;
+    return { min: 180, max };
+  };
+
+  const resetSideWidth = useCallback(() => setSideWidth(null), []);
+
+  /** 拖拽文件栏右侧边缘调整宽度；拖动时直接改变 CSS 变量，避免每帧整页重渲染。 */
+  const startSideResize = useCallback((event) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const root = rootRef.current;
+    const side = sideRef.current;
+    if (!root || !side) return;
+    event.preventDefault();
+    const handle = event.currentTarget;
+    const startX = event.clientX;
+    const startWidth = side.getBoundingClientRect().width;
+    const limits = sideWidthLimits();
+    let latest = startWidth;
+    try {
+      if (handle && typeof handle.setPointerCapture === 'function') handle.setPointerCapture(event.pointerId);
+    } catch (error) {
+      /* 指针捕获失败不影响窗口级监听 */
+    }
+    if (handle) handle.setAttribute('data-dragging', 'true');
+    try {
+      if (handle && typeof handle.focus === 'function') handle.focus({ preventScroll: true });
+    } catch (error) {
+      /* 聚焦失败不影响拖动 */
+    }
+    const onMove = (moveEvent) => {
+      latest = Math.min(limits.max, Math.max(limits.min, startWidth + (moveEvent.clientX - startX)));
+      root.style.setProperty('--mn-side', Math.round(latest) + 'px');
+      if (handle) handle.setAttribute('aria-valuenow', String(Math.round(latest)));
+    };
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      try {
+        if (handle && typeof handle.releasePointerCapture === 'function') handle.releasePointerCapture(event.pointerId);
+      } catch (error) {
+        /* 已经被释放 */
+      }
+      if (handle) handle.removeAttribute('data-dragging');
+      sideDragCleanupRef.current = null;
+    };
+    function finish() {
+      cleanup();
+      setSideWidth(Math.round(latest));
+    }
+    sideDragCleanupRef.current = cleanup;
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  }, []);
+
+  const handleSideResizeKeyDown = useCallback(
+    (event) => {
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        event.preventDefault();
+        const step = event.shiftKey ? 20 : 8;
+        const current = sideWidth || (sideRef.current ? sideRef.current.getBoundingClientRect().width : 264);
+        const limits = sideWidthLimits();
+        setSideWidth(Math.min(limits.max, Math.max(limits.min, Math.round(current + (event.key === 'ArrowRight' ? step : -step)))));
+      } else if (event.key === 'Home') {
+        event.preventDefault();
+        resetSideWidth();
+      }
+    },
+    [sideWidth, resetSideWidth],
+  );
+
+  useEffect(
+    () => () => {
+      if (sideDragCleanupRef.current) sideDragCleanupRef.current();
+    },
+    [],
+  );
+
+  // 窗口变窄时收敛自定义文件栏宽度，避免主区被压得过小。
+  useEffect(() => {
+    if (sideWidth === null) return undefined;
+    const root = rootRef.current;
+    if (!root) return undefined;
+    const clampWidth = () => {
+      const max = Math.max(180, Math.min(560, Math.round(root.clientWidth * 0.45)));
+      setSideWidth((current) => (current !== null && current > max ? max : current));
+    };
+    clampWidth();
+    if (typeof ResizeObserver === 'function') {
+      const observer = new ResizeObserver(clampWidth);
+      observer.observe(root);
+      return () => observer.disconnect();
+    }
+    window.addEventListener('resize', clampWidth);
+    return () => window.removeEventListener('resize', clampWidth);
+  }, [sideWidth === null]);
+
   // 容器变窄时收敛比例，避免记忆的极端比例把某一侧压得过窄。
   useEffect(() => {
     if (view !== 'split') return undefined;
@@ -1595,6 +1722,8 @@ MN.AppPage = function AppPage(props) {
     'div',
     {
       className: 'mn-root',
+      ref: rootRef,
+      style: sideWidth ? { '--mn-side': sideWidth + 'px' } : undefined,
       'data-view': columns,
       'data-side-collapsed': sideCollapsed ? 'true' : 'false',
     },
@@ -1602,7 +1731,7 @@ MN.AppPage = function AppPage(props) {
       ? null
       : h(
       'aside',
-      { className: 'mn-side' },
+      { className: 'mn-side', ref: sideRef },
       h(
         'div',
         { className: 'mn-side-head' },
@@ -1736,6 +1865,7 @@ MN.AppPage = function AppPage(props) {
             onNewFolder: createFolder,
             onFavorite: (path, favorite) => void toggleFavorite(path, favorite),
             onMove: (sourcePath, targetDir) => void moveEntry(sourcePath, targetDir),
+            onReorder: (sourcePath, targetPath, position) => void reorderEntry(sourcePath, targetPath, position),
           }),
       h(
         'div',
@@ -1765,6 +1895,22 @@ MN.AppPage = function AppPage(props) {
         h('span', { className: 'mn-side-count' }, String(state.stats ? state.stats.notes : 0)),
       ),
     ),
+    sideCollapsed
+      ? null
+      : h('div', {
+          className: 'mn-side-resizer',
+          role: 'separator',
+          tabIndex: 0,
+          'aria-orientation': 'vertical',
+          'aria-label': t('app.resizeSide'),
+          'aria-valuemin': 180,
+          'aria-valuemax': 560,
+          'aria-valuenow': Math.round(sideWidth || 264),
+          title: t('app.resizeSide'),
+          onPointerDown: startSideResize,
+          onDoubleClick: resetSideWidth,
+          onKeyDown: handleSideResizeKeyDown,
+        }),
     sideCollapsed
       ? h(
           'button',

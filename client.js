@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
     /** 本包 Client 侧唯一命名空间：各 part 只往这里挂方法/组件。 */
     const MN = {
       id: 'markdown-notes',
-      version: '1.9.1',
+      version: '1.11.0',
       React,
       h,
       useState,
@@ -1676,6 +1676,10 @@ html[data-platform="darwin"] .mn-root{padding-top:var(--dsh-frame-top-clearance,
 .mn-root *{box-sizing:border-box}
 .mn-root button,.mn-root input,.mn-root textarea{font-family:inherit}
 .mn-side{flex:none;width:var(--mn-side);min-width:0;display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.08));background:var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-layer-1,#f7f7f8))}
+.mn-side-resizer{position:absolute;top:0;bottom:0;left:calc(var(--mn-side) - 2px);width:5px;z-index:16;cursor:col-resize;touch-action:none;outline:none;background:transparent}
+.mn-side-resizer:before{content:"";position:absolute;left:2px;top:0;bottom:0;width:2px;border-radius:1px;background:transparent;transition:background .12s ease}
+.mn-side-resizer:hover:before,.mn-side-resizer:focus-visible:before,.mn-side-resizer[data-dragging="true"]:before{background:var(--dsw-alias-brand-primary,#2f6bff)}
+.mn-side-resizer:focus-visible{outline:none}
 .mn-side-head{flex:none;display:flex;align-items:center;gap:6px;padding:12px 12px 8px}
 .mn-side-collapse{flex:none;margin-right:-2px}
 .mn-side-expand{position:absolute;left:8px;top:10px;z-index:12;width:30px;height:30px;border:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.12));border-radius:8px;background:var(--dsw-alias-bg-overlay,#fff);box-shadow:0 2px 8px rgba(0,0,0,.12);color:var(--dsw-alias-label-secondary,#6b6b70);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background .12s ease,color .12s ease,border-color .12s ease}
@@ -1704,6 +1708,8 @@ html[data-platform="darwin"] .mn-root{padding-top:var(--dsh-frame-top-clearance,
 .mn-row[data-dragging="true"]{opacity:.5;cursor:grabbing}
 .mn-row[data-drop-target="true"]{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 10%,transparent);outline:1.5px dashed var(--dsw-alias-brand-primary,#2f6bff);outline-offset:-2px}
 .mn-row[data-drop-target="true"]:after{content:"↳";position:absolute;right:6px;bottom:1px;font-size:10px;color:var(--dsw-alias-brand-primary,#2f6bff);opacity:.85}
+.mn-row[data-drop-position="before"]{box-shadow:inset 0 2px 0 var(--dsw-alias-brand-primary,#2f6bff)}
+.mn-row[data-drop-position="after"]{box-shadow:inset 0 -2px 0 var(--dsw-alias-brand-primary,#2f6bff)}
 .mn-row-icon{flex:none;width:16px;height:16px;display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-secondary,#6b6b70)}
 .mn-row[data-active="true"] .mn-row-icon{color:var(--dsw-alias-brand-primary,#2f6bff)}
 .mn-row-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px}
@@ -2200,14 +2206,16 @@ MN.TreeNode = function TreeNode(props) {
           'aria-expanded': open ? 'true' : 'false',
           'data-dragging': props.draggingPath === node.path ? 'true' : undefined,
           'data-drop-target': props.dropTarget === node.path ? 'true' : undefined,
+          'data-drop-position':
+            props.dropIndicator && props.dropIndicator.path === node.path ? props.dropIndicator.position : undefined,
           title: node.path,
           onClick: () => props.onToggle(node.path),
           onContextMenu: (event) => props.onMenu(event, node),
           onDragStart: (event) => props.onDragStart(event, node),
           onDragEnd: props.onDragEnd,
-          onDragOver: (event) => props.onDragOver(event, node.path),
-          onDragLeave: (event) => props.onDragLeave(event, node.path),
-          onDrop: (event) => props.onDrop(event, node.path),
+          onDragOver: (event) => props.onDragOver(event, node),
+          onDragLeave: (event) => props.onDragLeave(event, node),
+          onDrop: (event) => props.onDrop(event, node),
           onKeyDown: (event) => {
             if (event.key === 'Enter' || event.key === ' ') {
               event.preventDefault();
@@ -2293,6 +2301,7 @@ MN.TreeNode = function TreeNode(props) {
                     onFavorite: props.onFavorite,
                     draggingPath: props.draggingPath,
                     dropTarget: props.dropTarget,
+                    dropIndicator: props.dropIndicator,
                     onDragStart: props.onDragStart,
                     onDragEnd: props.onDragEnd,
                     onDragOver: props.onDragOver,
@@ -2313,6 +2322,8 @@ MN.TreeNode = function TreeNode(props) {
       style: { paddingLeft: 4 + depth * 14 },
       'data-active': active ? 'true' : 'false',
       'data-dragging': props.draggingPath === node.path ? 'true' : undefined,
+      'data-drop-position':
+        props.dropIndicator && props.dropIndicator.path === node.path ? props.dropIndicator.position : undefined,
       role: 'button',
       tabIndex: 0,
       draggable: true,
@@ -2321,6 +2332,9 @@ MN.TreeNode = function TreeNode(props) {
       onContextMenu: (event) => props.onMenu(event, node),
       onDragStart: (event) => props.onDragStart(event, node),
       onDragEnd: props.onDragEnd,
+      onDragOver: (event) => props.onDragOver(event, node),
+      onDragLeave: (event) => props.onDragLeave(event, node),
+      onDrop: (event) => props.onDrop(event, node),
       onKeyDown: (event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
@@ -2374,6 +2388,7 @@ MN.TreeView = function TreeView(props) {
   const t = MN.t;
   const [draggingPath, setDraggingPath] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
+  const [dropIndicator, setDropIndicator] = useState(null);
   const favoriteNotes = useMemo(() => {
     const out = [];
     for (const path of props.favorites) {
@@ -2400,6 +2415,7 @@ MN.TreeView = function TreeView(props) {
     if (!event.dataTransfer) return;
     setDraggingPath(node.path);
     setDropTarget(null);
+    setDropIndicator(null);
     event.dataTransfer.effectAllowed = 'move';
     try {
       event.dataTransfer.setData('text/plain', node.path);
@@ -2411,34 +2427,85 @@ MN.TreeView = function TreeView(props) {
   const handleDragEnd = () => {
     setDraggingPath(null);
     setDropTarget(null);
+    setDropIndicator(null);
   };
 
-  const handleDragOver = (event, targetPath) => {
-    if (!canDropOn(targetPath)) {
-      if (event.dataTransfer) event.dataTransfer.dropEffect = 'none';
-      if (dropTarget === targetPath) setDropTarget(null);
+  /**
+   * 同一目录内的行上 / 下缘用于排序；文件夹行中间区域用于「移动到该文件夹」。
+   * 笔记行没有「移入」语义，整行都作为排序目标。
+   */
+  const reorderPositionAt = (event, node) => {
+    if (!draggingPath || node.path === draggingPath) return null;
+    const sourceParent = MN.dirnameOf(draggingPath);
+    const targetParent = MN.dirnameOf(node.path);
+    if (sourceParent !== targetParent) return null;
+    const row = event.currentTarget;
+    const rect = row && typeof row.getBoundingClientRect === 'function' ? row.getBoundingClientRect() : null;
+    const ratio = rect && rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5;
+    if (node.type === 'folder') {
+      if (ratio >= 0.3 && ratio <= 0.7) return null;
+      return ratio < 0.5 ? 'before' : 'after';
+    }
+    return ratio < 0.5 ? 'before' : 'after';
+  };
+
+  const handleDragOver = (event, node) => {
+    if (!draggingPath) return;
+    const position = reorderPositionAt(event, node);
+    if (position !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      setDropTarget(null);
+      if (!dropIndicator || dropIndicator.path !== node.path || dropIndicator.position !== position) {
+        setDropIndicator({ path: node.path, position });
+      }
       return;
     }
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-    if (dropTarget !== targetPath) setDropTarget(targetPath);
+    if (node.type === 'folder' && canDropOn(node.path)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      setDropIndicator(null);
+      if (dropTarget !== node.path) setDropTarget(node.path);
+      return;
+    }
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'none';
+    if (dropTarget === node.path) setDropTarget(null);
+    if (dropIndicator && dropIndicator.path === node.path) setDropIndicator(null);
   };
 
-  const handleDragLeave = (event, targetPath) => {
+  const handleDragLeave = (event, node) => {
     const related = event.relatedTarget;
     if (related && event.currentTarget && event.currentTarget.contains(related)) return;
-    if (dropTarget === targetPath) setDropTarget(null);
+    if (dropTarget === node.path) setDropTarget(null);
+    if (dropIndicator && dropIndicator.path === node.path) setDropIndicator(null);
   };
 
-  const handleDrop = (event, targetPath) => {
-    if (!canDropOn(targetPath)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const source = draggingPath || (event.dataTransfer ? event.dataTransfer.getData('text/plain') : '');
-    setDraggingPath(null);
+  const handleDrop = (event, node) => {
+    if (!draggingPath) return;
+    const position = reorderPositionAt(event, node);
+    const source = draggingPath;
+    if (position !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      setDraggingPath(null);
+      setDropTarget(null);
+      setDropIndicator(null);
+      if (props.onReorder) props.onReorder(source, node.path, position);
+      return;
+    }
+    if (node.type === 'folder' && canDropOn(node.path)) {
+      event.preventDefault();
+      event.stopPropagation();
+      setDraggingPath(null);
+      setDropTarget(null);
+      setDropIndicator(null);
+      if (props.onMove) props.onMove(source, node.path);
+      return;
+    }
     setDropTarget(null);
-    if (source) props.onMove(source, targetPath);
+    setDropIndicator(null);
   };
 
   const rowProps = {
@@ -2454,6 +2521,7 @@ MN.TreeView = function TreeView(props) {
     onFavorite: props.onFavorite,
     draggingPath,
     dropTarget,
+    dropIndicator,
     onDragStart: handleDragStart,
     onDragEnd: handleDragEnd,
     onDragOver: handleDragOver,
@@ -4534,7 +4602,11 @@ function loadUiPrefs() {
       ? raw.splitRatio
       : 0.5;
   const sideCollapsed = Boolean(raw && raw.sideCollapsed === true);
-  return { view, expanded, syncScroll, splitRatio, sideCollapsed };
+  const sideWidth =
+    raw && typeof raw.sideWidth === 'number' && Number.isFinite(raw.sideWidth)
+      ? Math.min(560, Math.max(180, raw.sideWidth))
+      : null;
+  return { view, expanded, syncScroll, splitRatio, sideCollapsed, sideWidth };
 }
 
 /** 把时间戳格式化为 HH:mm。 */
@@ -4752,6 +4824,7 @@ MN.AppPage = function AppPage(props) {
   const [syncScroll, setSyncScroll] = useState(initialPrefs.syncScroll);
   const [splitRatio, setSplitRatio] = useState(initialPrefs.splitRatio);
   const [sideCollapsed, setSideCollapsed] = useState(initialPrefs.sideCollapsed);
+  const [sideWidth, setSideWidth] = useState(initialPrefs.sideWidth);
   const [ghostCaret, setGhostCaret] = useState(null);
   const [query, setQuery] = useState('');
   const [searchResult, setSearchResult] = useState(null);
@@ -4784,6 +4857,9 @@ MN.AppPage = function AppPage(props) {
   const panesRef = useRef(null);
   const splitDragCleanupRef = useRef(null);
   const splitClickRef = useRef({ time: 0, x: 0 });
+  const rootRef = useRef(null);
+  const sideRef = useRef(null);
+  const sideDragCleanupRef = useRef(null);
 
   const favoriteSet = useMemo(() => new Set(state.favorites || []), [state.favorites]);
   const allNotes = useMemo(() => MN.collectNotes(state.tree), [state.tree]);
@@ -5216,12 +5292,13 @@ MN.AppPage = function AppPage(props) {
         syncScroll,
         splitRatio,
         sideCollapsed,
+        sideWidth,
         expanded: Array.from(expanded),
         lastOpened: lastOpenRef.current,
       });
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [view, syncScroll, splitRatio, sideCollapsed, expanded]);
+  }, [view, syncScroll, splitRatio, sideCollapsed, sideWidth, expanded]);
 
   // Ctrl/Cmd + S 立即保存。
   useEffect(() => {
@@ -5452,8 +5529,26 @@ MN.AppPage = function AppPage(props) {
     [flushSave, refresh, showToast, t],
   );
 
-  /* ----------------------------- 搜索 ----------------------------- */
+  /** 同一文件夹内拖动排序：只调整目录顺序，不改变文件内容或路径。 */
+  const reorderEntry = useCallback(
+    async (sourcePath, targetPath, position) => {
+      try {
+        await MN.api.post('entry/reorder', { path: sourcePath, target: targetPath, position });
+        await refresh();
+        showToast(t('toast.reordered'), 'info');
+      } catch (error) {
+        showToast(error && error.message ? error.message : t('toast.reorderFailed'), 'error');
+        try {
+          await refresh();
+        } catch (refreshError) {
+          /* 忽略刷新失败 */
+        }
+      }
+    },
+    [refresh, showToast, t],
+  );
 
+  /* ----------------------------- 搜索 ----------------------------- */
   const runSearch = useCallback(async () => {
     const needle = query.trim();
     if (needle === '') {
@@ -5890,6 +5985,106 @@ MN.AppPage = function AppPage(props) {
     [],
   );
 
+  const sideWidthLimits = () => {
+    const root = rootRef.current;
+    const max = root ? Math.max(180, Math.min(560, Math.round(root.clientWidth * 0.45))) : 560;
+    return { min: 180, max };
+  };
+
+  const resetSideWidth = useCallback(() => setSideWidth(null), []);
+
+  /** 拖拽文件栏右侧边缘调整宽度；拖动时直接改变 CSS 变量，避免每帧整页重渲染。 */
+  const startSideResize = useCallback((event) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const root = rootRef.current;
+    const side = sideRef.current;
+    if (!root || !side) return;
+    event.preventDefault();
+    const handle = event.currentTarget;
+    const startX = event.clientX;
+    const startWidth = side.getBoundingClientRect().width;
+    const limits = sideWidthLimits();
+    let latest = startWidth;
+    try {
+      if (handle && typeof handle.setPointerCapture === 'function') handle.setPointerCapture(event.pointerId);
+    } catch (error) {
+      /* 指针捕获失败不影响窗口级监听 */
+    }
+    if (handle) handle.setAttribute('data-dragging', 'true');
+    try {
+      if (handle && typeof handle.focus === 'function') handle.focus({ preventScroll: true });
+    } catch (error) {
+      /* 聚焦失败不影响拖动 */
+    }
+    const onMove = (moveEvent) => {
+      latest = Math.min(limits.max, Math.max(limits.min, startWidth + (moveEvent.clientX - startX)));
+      root.style.setProperty('--mn-side', Math.round(latest) + 'px');
+      if (handle) handle.setAttribute('aria-valuenow', String(Math.round(latest)));
+    };
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      try {
+        if (handle && typeof handle.releasePointerCapture === 'function') handle.releasePointerCapture(event.pointerId);
+      } catch (error) {
+        /* 已经被释放 */
+      }
+      if (handle) handle.removeAttribute('data-dragging');
+      sideDragCleanupRef.current = null;
+    };
+    function finish() {
+      cleanup();
+      setSideWidth(Math.round(latest));
+    }
+    sideDragCleanupRef.current = cleanup;
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  }, []);
+
+  const handleSideResizeKeyDown = useCallback(
+    (event) => {
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        event.preventDefault();
+        const step = event.shiftKey ? 20 : 8;
+        const current = sideWidth || (sideRef.current ? sideRef.current.getBoundingClientRect().width : 264);
+        const limits = sideWidthLimits();
+        setSideWidth(Math.min(limits.max, Math.max(limits.min, Math.round(current + (event.key === 'ArrowRight' ? step : -step)))));
+      } else if (event.key === 'Home') {
+        event.preventDefault();
+        resetSideWidth();
+      }
+    },
+    [sideWidth, resetSideWidth],
+  );
+
+  useEffect(
+    () => () => {
+      if (sideDragCleanupRef.current) sideDragCleanupRef.current();
+    },
+    [],
+  );
+
+  // 窗口变窄时收敛自定义文件栏宽度，避免主区被压得过小。
+  useEffect(() => {
+    if (sideWidth === null) return undefined;
+    const root = rootRef.current;
+    if (!root) return undefined;
+    const clampWidth = () => {
+      const max = Math.max(180, Math.min(560, Math.round(root.clientWidth * 0.45)));
+      setSideWidth((current) => (current !== null && current > max ? max : current));
+    };
+    clampWidth();
+    if (typeof ResizeObserver === 'function') {
+      const observer = new ResizeObserver(clampWidth);
+      observer.observe(root);
+      return () => observer.disconnect();
+    }
+    window.addEventListener('resize', clampWidth);
+    return () => window.removeEventListener('resize', clampWidth);
+  }, [sideWidth === null]);
+
   // 容器变窄时收敛比例，避免记忆的极端比例把某一侧压得过窄。
   useEffect(() => {
     if (view !== 'split') return undefined;
@@ -6114,6 +6309,8 @@ MN.AppPage = function AppPage(props) {
     'div',
     {
       className: 'mn-root',
+      ref: rootRef,
+      style: sideWidth ? { '--mn-side': sideWidth + 'px' } : undefined,
       'data-view': columns,
       'data-side-collapsed': sideCollapsed ? 'true' : 'false',
     },
@@ -6121,7 +6318,7 @@ MN.AppPage = function AppPage(props) {
       ? null
       : h(
       'aside',
-      { className: 'mn-side' },
+      { className: 'mn-side', ref: sideRef },
       h(
         'div',
         { className: 'mn-side-head' },
@@ -6255,6 +6452,7 @@ MN.AppPage = function AppPage(props) {
             onNewFolder: createFolder,
             onFavorite: (path, favorite) => void toggleFavorite(path, favorite),
             onMove: (sourcePath, targetDir) => void moveEntry(sourcePath, targetDir),
+            onReorder: (sourcePath, targetPath, position) => void reorderEntry(sourcePath, targetPath, position),
           }),
       h(
         'div',
@@ -6284,6 +6482,22 @@ MN.AppPage = function AppPage(props) {
         h('span', { className: 'mn-side-count' }, String(state.stats ? state.stats.notes : 0)),
       ),
     ),
+    sideCollapsed
+      ? null
+      : h('div', {
+          className: 'mn-side-resizer',
+          role: 'separator',
+          tabIndex: 0,
+          'aria-orientation': 'vertical',
+          'aria-label': t('app.resizeSide'),
+          'aria-valuemin': 180,
+          'aria-valuemax': 560,
+          'aria-valuenow': Math.round(sideWidth || 264),
+          title: t('app.resizeSide'),
+          onPointerDown: startSideResize,
+          onDoubleClick: resetSideWidth,
+          onKeyDown: handleSideResizeKeyDown,
+        }),
     sideCollapsed
       ? h(
           'button',
@@ -6574,6 +6788,7 @@ MN.DICTIONARIES = {
     'app.title': 'Markdown 笔记',
     'app.collapseSide': '收起文件栏',
     'app.expandSide': '展开文件栏',
+    'app.resizeSide': '拖动调整文件栏宽度，双击恢复默认',
     'app.newNote': '新建笔记',
     'app.newFolder': '新建文件夹',
     'app.refresh': '刷新目录',
@@ -6715,6 +6930,8 @@ MN.DICTIONARIES = {
     'toast.revealFailed': '打开文件管理器失败',
     'toast.moved': '已移动到目标文件夹',
     'toast.moveFailed': '移动失败',
+    'toast.reordered': '顺序已更新',
+    'toast.reorderFailed': '排序失败',
     'toast.refreshFailed': '刷新失败',
     'time.justNow': '刚刚',
     'time.minutes': ' 分钟前',
@@ -6728,6 +6945,7 @@ MN.DICTIONARIES = {
     'app.title': 'Markdown Notes',
     'app.collapseSide': 'Collapse file bar',
     'app.expandSide': 'Expand file bar',
+    'app.resizeSide': 'Drag to resize the file bar; double-click to reset',
     'app.newNote': 'New note',
     'app.newFolder': 'New folder',
     'app.refresh': 'Refresh tree',
@@ -6869,6 +7087,8 @@ MN.DICTIONARIES = {
     'toast.revealFailed': 'Could not open the file manager',
     'toast.moved': 'Moved to the target folder',
     'toast.moveFailed': 'Move failed',
+    'toast.reordered': 'Order updated',
+    'toast.reorderFailed': 'Reorder failed',
     'toast.refreshFailed': 'Refresh failed',
     'time.justNow': 'just now',
     'time.minutes': ' min ago',
