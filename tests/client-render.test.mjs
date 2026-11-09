@@ -638,6 +638,40 @@ check('code fence language can be changed without touching the body', () => {
   assert.equal(untouched.markdown, 'plain text');
 });
 
+check('table row and column shortcuts update markdown', () => {
+  const env = makeEnv();
+  env.reset([]);
+  const source = '| A | B |\n| --- | --- |\n| 1 | 2 |';
+  assert.equal(
+    env.MN.editTableMarkdown(source, 1, 0, 0, 'rowBelow').markdown,
+    '| A | B |\n| --- | --- |\n|  |  |\n| 1 | 2 |',
+  );
+  assert.equal(
+    env.MN.editTableMarkdown(source, 1, 1, 0, 'rowAbove').markdown,
+    '| A | B |\n| --- | --- |\n|  |  |\n| 1 | 2 |',
+  );
+  assert.equal(
+    env.MN.editTableMarkdown(source, 1, 1, 0, 'rowBelow').markdown,
+    '| A | B |\n| --- | --- |\n| 1 | 2 |\n|  |  |',
+  );
+  assert.equal(
+    env.MN.editTableMarkdown(source, 1, 0, 0, 'colLeft').markdown,
+    '|  | A | B |\n| --- | --- | --- |\n|  | 1 | 2 |',
+  );
+  assert.equal(
+    env.MN.editTableMarkdown(source, 1, 0, 1, 'colRight').markdown,
+    '| A | B |  |\n| --- | --- | --- |\n| 1 | 2 |  |',
+  );
+  assert.equal(env.MN.editTableMarkdown(source, 1, 1, 0, 'rowDelete').markdown, '| A | B |\n| --- | --- |');
+  assert.equal(env.MN.editTableMarkdown(source, 1, 0, 0, 'rowDelete').changed, false);
+  assert.equal(
+    env.MN.editTableMarkdown(source, 1, 1, 1, 'colDelete').markdown,
+    '| A |\n| --- |\n| 1 |',
+  );
+  const singleColumn = '| A |\n| --- |\n| 1 |';
+  assert.equal(env.MN.editTableMarkdown(singleColumn, 1, 1, 0, 'colDelete').changed, false);
+});
+
 check('RichEditor renders the slash block menu', () => {
   const env = makeEnv();
   env.reset(['<p>hi</p>', null, { left: 20, top: 30, index: 0 }]);

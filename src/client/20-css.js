@@ -168,6 +168,12 @@ html[data-platform="darwin"] .mn-root{padding-top:var(--dsh-frame-top-clearance,
 .mn-rich .mn-code-lang:hover{background:var(--dsw-alias-bg-base,#fff);border-color:var(--dsw-alias-border-l1,rgba(0,0,0,.12));color:var(--dsw-alias-label-primary,#1d1d1f)}
 .mn-rich .mn-code-lang:focus-visible{border-color:var(--dsw-alias-brand-primary,#2f6bff);background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary,#1d1d1f);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 15%,transparent)}
 .mn-rich .mn-code-lang option{color:var(--dsw-alias-label-primary,#1d1d1f);background:var(--dsw-alias-bg-overlay,#fff)}
+.mn-rich .mn-code-toggle{flex:none;margin-left:2px;height:22px;padding:0 7px;display:inline-flex;align-items:center;justify-content:center;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#8a8a90);font:inherit;font-size:10.5px;line-height:1;cursor:pointer;outline:none;white-space:nowrap;transition:background .12s ease,color .12s ease,border-color .12s ease}
+.mn-rich .mn-code-toggle:hover{background:var(--dsw-alias-bg-base,#fff);border-color:var(--dsw-alias-border-l1,rgba(0,0,0,.12));color:var(--dsw-alias-label-primary,#1d1d1f)}
+.mn-rich .mn-code-toggle:focus-visible{border-color:var(--dsw-alias-brand-primary,#2f6bff);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 15%,transparent)}
+.mn-rich .mn-code-block[data-collapsed="true"] .mn-code-toggle{color:var(--dsw-alias-brand-primary,#2f6bff)}
+.mn-rich .mn-code-block[data-collapsed="true"] pre{display:none}
+.mn-rich .mn-code-block[data-collapsed="true"] .mn-code-head{border-bottom-color:transparent}
 .mn-rich .mn-code-block pre{margin:0;border:0;border-radius:0;background:transparent}
 .mn-rich pre code{background:transparent;padding:0;font-size:12.5px;white-space:pre}
 .mn-rich .tok-comment{color:var(--dsw-alias-label-secondary,#6b6b70);font-style:italic;opacity:.88}
@@ -208,6 +214,11 @@ html[data-platform="darwin"] .mn-root{padding-top:var(--dsh-frame-top-clearance,
 .mn-rich .mn-table-wrap{overflow:auto;margin:.8em 0;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.22));border-color:var(--mn-block-border);border-radius:8px}
 .mn-rich table{border-collapse:collapse;width:100%;font-size:13px}
 .mn-rich th,.mn-rich td{border-bottom:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.2));border-right:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.2));border-color:color-mix(in srgb,var(--dsw-alias-label-secondary,#6b6b70) 38%,transparent);padding:7px 10px;text-align:left;vertical-align:top}
+.mn-rich td{transition:background-color .12s ease}
+.mn-rich td:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 7%,transparent)}
+.mn-rich td.mn-cell-selected{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 13%,transparent)}
+/* 空单元格也撑出与有内容单元格一致的行高，保证新增行列的点击区域和视觉效果。 */
+.mn-rich td:empty::before,.mn-rich th:empty::before{content:"\\00A0"}
 .mn-rich th{background:var(--dsw-alias-bg-layer-1,#f6f6f7);font-weight:600;border-bottom-color:color-mix(in srgb,var(--dsw-alias-label-secondary,#6b6b70) 58%,transparent)}
 .mn-rich tr:last-child td{border-bottom:0}
 .mn-rich th:last-child,.mn-rich td:last-child{border-right:0}

@@ -109,6 +109,8 @@ check('code block language selector', () => {
   assert.match(plain, /<select class="mn-code-lang"[^>]*data-code-line="1"/);
   assert.match(plain, /<option value="text" selected>text<\/option>/);
   assert.match(plain, /<pre><code>/);
+  assert.match(plain, /class="mn-code-toggle"/);
+  assert.match(plain, /mn-code-toggle-text">收起<\/span>/);
 
   const java = render('```java\nclass A {}\n```');
   assert.match(java, /<option value="java" selected>java<\/option>/);

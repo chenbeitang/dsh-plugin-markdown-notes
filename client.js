@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
     /** 本包 Client 侧唯一命名空间：各 part 只往这里挂方法/组件。 */
     const MN = {
       id: 'markdown-notes',
-      version: '1.12.0',
+      version: '1.14.2',
       React,
       h,
       useState,
@@ -365,6 +365,7 @@ MN.md = (function () {
       options +
       '</select>' +
       '</span>' +
+      '<button type="button" class="mn-code-toggle" contenteditable="false" aria-expanded="true" title="收起代码块" aria-label="收起代码块"><span class="mn-code-toggle-text">收起</span></button>' +
       '</div>'
     );
   }
@@ -1837,6 +1838,12 @@ html[data-platform="darwin"] .mn-root{padding-top:var(--dsh-frame-top-clearance,
 .mn-rich .mn-code-lang:hover{background:var(--dsw-alias-bg-base,#fff);border-color:var(--dsw-alias-border-l1,rgba(0,0,0,.12));color:var(--dsw-alias-label-primary,#1d1d1f)}
 .mn-rich .mn-code-lang:focus-visible{border-color:var(--dsw-alias-brand-primary,#2f6bff);background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary,#1d1d1f);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 15%,transparent)}
 .mn-rich .mn-code-lang option{color:var(--dsw-alias-label-primary,#1d1d1f);background:var(--dsw-alias-bg-overlay,#fff)}
+.mn-rich .mn-code-toggle{flex:none;margin-left:2px;height:22px;padding:0 7px;display:inline-flex;align-items:center;justify-content:center;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#8a8a90);font:inherit;font-size:10.5px;line-height:1;cursor:pointer;outline:none;white-space:nowrap;transition:background .12s ease,color .12s ease,border-color .12s ease}
+.mn-rich .mn-code-toggle:hover{background:var(--dsw-alias-bg-base,#fff);border-color:var(--dsw-alias-border-l1,rgba(0,0,0,.12));color:var(--dsw-alias-label-primary,#1d1d1f)}
+.mn-rich .mn-code-toggle:focus-visible{border-color:var(--dsw-alias-brand-primary,#2f6bff);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 15%,transparent)}
+.mn-rich .mn-code-block[data-collapsed="true"] .mn-code-toggle{color:var(--dsw-alias-brand-primary,#2f6bff)}
+.mn-rich .mn-code-block[data-collapsed="true"] pre{display:none}
+.mn-rich .mn-code-block[data-collapsed="true"] .mn-code-head{border-bottom-color:transparent}
 .mn-rich .mn-code-block pre{margin:0;border:0;border-radius:0;background:transparent}
 .mn-rich pre code{background:transparent;padding:0;font-size:12.5px;white-space:pre}
 .mn-rich .tok-comment{color:var(--dsw-alias-label-secondary,#6b6b70);font-style:italic;opacity:.88}
@@ -1877,6 +1884,11 @@ html[data-platform="darwin"] .mn-root{padding-top:var(--dsh-frame-top-clearance,
 .mn-rich .mn-table-wrap{overflow:auto;margin:.8em 0;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.22));border-color:var(--mn-block-border);border-radius:8px}
 .mn-rich table{border-collapse:collapse;width:100%;font-size:13px}
 .mn-rich th,.mn-rich td{border-bottom:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.2));border-right:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.2));border-color:color-mix(in srgb,var(--dsw-alias-label-secondary,#6b6b70) 38%,transparent);padding:7px 10px;text-align:left;vertical-align:top}
+.mn-rich td{transition:background-color .12s ease}
+.mn-rich td:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 7%,transparent)}
+.mn-rich td.mn-cell-selected{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 13%,transparent)}
+/* 空单元格也撑出与有内容单元格一致的行高，保证新增行列的点击区域和视觉效果。 */
+.mn-rich td:empty::before,.mn-rich th:empty::before{content:"\\00A0"}
 .mn-rich th{background:var(--dsw-alias-bg-layer-1,#f6f6f7);font-weight:600;border-bottom-color:color-mix(in srgb,var(--dsw-alias-label-secondary,#6b6b70) 58%,transparent)}
 .mn-rich tr:last-child td{border-bottom:0}
 .mn-rich th:last-child,.mn-rich td:last-child{border-right:0}
@@ -3805,7 +3817,79 @@ const SLASH_ITEMS = [
   { id: 'paragraph', icon: 'file', labelKey: 'slash.paragraph', descKey: 'slash.paragraphDesc', snippet: '' },
 ];
 
-/** 渲染视图 / 原文视图共用的格式块菜单。 */
+/** 表格行列快捷编辑：line 为表格起始行，rowIndex 为 tr 下标（0 是表头）。 */
+MN.editTableMarkdown = function editTableMarkdown(markdown, line, rowIndex, columnIndex, action) {
+  const text = String(markdown === undefined || markdown === null ? '' : markdown);
+  const lines = text.split('\n');
+  const headerIndex = Number(line) - 1;
+  const isTableLine = (value) => String(value || '').trim().includes('|');
+  if (headerIndex < 0 || !isTableLine(lines[headerIndex]) || !isTableLine(lines[headerIndex + 1])) {
+    return { markdown: text, changed: false };
+  }
+  const parse = (value) => {
+    let raw = String(value || '').trim();
+    if (raw.startsWith('|')) raw = raw.slice(1);
+    if (raw.endsWith('|')) raw = raw.slice(0, -1);
+    return raw.split('|').map((cell) => cell.trim());
+  };
+  const format = (cells) => '| ' + cells.join(' | ') + ' |';
+  const header = parse(lines[headerIndex]);
+  let bodyEnd = headerIndex + 2;
+  while (bodyEnd < lines.length && lines[bodyEnd].trim() !== '' && isTableLine(lines[bodyEnd])) bodyEnd += 1;
+  const bodyCount = bodyEnd - (headerIndex + 2);
+  const columnCount = Math.max(header.length, 1);
+  const emptyRow = () => format(new Array(columnCount).fill(''));
+  const rowIndexNumber = Math.max(0, Number(rowIndex) || 0);
+  if (action === 'rowAbove' || action === 'rowBelow') {
+    let bodyIndex = 0;
+    if (rowIndexNumber > 0) bodyIndex = action === 'rowAbove' ? rowIndexNumber - 1 : rowIndexNumber;
+    bodyIndex = Math.max(0, Math.min(bodyCount, bodyIndex));
+    lines.splice(headerIndex + 2 + bodyIndex, 0, emptyRow());
+    return { markdown: lines.join('\n'), changed: true };
+  }
+  if (action === 'colLeft' || action === 'colRight') {
+    const at = Math.max(0, Number(columnIndex) || 0) + (action === 'colRight' ? 1 : 0);
+    const insertCell = (cells) => {
+      const next = cells.slice();
+      while (next.length < at) next.push('');
+      next.splice(at, 0, '');
+      return next;
+    };
+    lines[headerIndex] = format(insertCell(header));
+    const separator = insertCell(parse(lines[headerIndex + 1]));
+    separator[at] = '---';
+    lines[headerIndex + 1] = format(separator);
+    for (let index = headerIndex + 2; index < bodyEnd; index += 1) {
+      lines[index] = format(insertCell(parse(lines[index])));
+    }
+    return { markdown: lines.join('\n'), changed: true };
+  }
+  if (action === 'rowDelete') {
+    if (rowIndexNumber <= 0) return { markdown: text, changed: false };
+    const sourceIndex = headerIndex + 2 + (rowIndexNumber - 1);
+    if (sourceIndex < headerIndex + 2 || sourceIndex >= bodyEnd) return { markdown: text, changed: false };
+    lines.splice(sourceIndex, 1);
+    return { markdown: lines.join('\n'), changed: true };
+  }
+  if (action === 'colDelete') {
+    if (header.length <= 1) return { markdown: text, changed: false };
+    const at = Math.max(0, Math.min(header.length - 1, Number(columnIndex) || 0));
+    const deleteCell = (cells) => {
+      const next = cells.slice();
+      if (at < next.length) next.splice(at, 1);
+      return next;
+    };
+    lines[headerIndex] = format(deleteCell(header));
+    lines[headerIndex + 1] = format(deleteCell(parse(lines[headerIndex + 1])));
+    for (let index = headerIndex + 2; index < bodyEnd; index += 1) {
+      lines[index] = format(deleteCell(parse(lines[index])));
+    }
+    return { markdown: lines.join('\n'), changed: true };
+  }
+  return { markdown: text, changed: false };
+};
+
+
 MN.SlashMenu = function SlashMenu(props) {
   return h(
     'div',
@@ -3916,6 +4000,7 @@ MN.RichEditor = function RichEditor(props) {
   const resizeCleanupRef = useRef(null);
   const [imageOverlay, setImageOverlay] = useState(null);
   const [slashMenu, setSlashMenu] = useState(null);
+  const [tableMenu, setTableMenu] = useState(null);
   const slashBlockRef = useRef(null);
   const slashMenuRef = useRef(null);
   const pendingCaretRef = useRef(null);
@@ -3969,7 +4054,59 @@ MN.RichEditor = function RichEditor(props) {
     if (selectedImageRef.current) window.requestAnimationFrame(syncImageOverlay);
   }, [props.onChange, syncImageOverlay]);
 
-  /** 切换代码块围栏语言，立即重渲染并回写 Markdown。 */
+  /** 右键表格单元格：记录目标行列并打开快捷编辑菜单。 */
+  const openTableMenu = (event) => {
+    const target = event.target;
+    if (!target || typeof target.closest !== 'function') return;
+    const cell = target.closest('td,th');
+    if (!cell) return;
+    const wrapper = cell.closest('.mn-table-wrap');
+    const row = cell.closest('tr');
+    const table = cell.closest('table');
+    if (!wrapper || !row || !table) return;
+    const rows = Array.from(table.querySelectorAll('tr'));
+    const rowIndex = rows.indexOf(row);
+    const cells = Array.from(row.children || []).filter((child) => /^(TD|TH)$/.test(child.tagName || ''));
+    const columnIndex = cells.indexOf(cell);
+    const line = Number.parseInt(wrapper.getAttribute('data-line'), 10);
+    if (!Number.isFinite(line) || rowIndex < 0 || columnIndex < 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const editor = elementRef.current;
+    if (editor) {
+      editor.querySelectorAll('.mn-cell-selected').forEach((selected) => selected.classList.remove('mn-cell-selected'));
+    }
+    if (cell.tagName === 'TD') cell.classList.add('mn-cell-selected');
+    const headerCells = rows.length > 0 ? Array.from(rows[0].children || []).filter((child) => /^(TD|TH)$/.test(child.tagName || '')) : [];
+    setTableMenu({
+      x: event.clientX,
+      y: event.clientY,
+      line,
+      rowIndex,
+      columnIndex,
+      columnCount: headerCells.length || cells.length,
+    });
+  };
+
+  const applyTableAction = (action) => {
+    const menu = tableMenu;
+    setTableMenu(null);
+    if (!menu) return;
+    const result = MN.editTableMarkdown(props.markdown, menu.line, menu.rowIndex, menu.columnIndex, action);
+    if (!result.changed) return;
+    lastEmittedRef.current = result.markdown;
+    const editor = elementRef.current;
+    const scrollTop = editor ? editor.scrollTop : 0;
+    setSeedHtml(MN.md.render(result.markdown, { mediaUrl: MN.mediaUrl, trackLines: true }));
+    props.onChange(result.markdown);
+    if (editor) {
+      window.requestAnimationFrame(() => {
+        editor.scrollTop = scrollTop;
+      });
+    }
+  };
+
+
   const changeCodeLanguage = (select) => {
     if (!select || select.value === undefined) return;
     const editor = elementRef.current;
@@ -4003,8 +4140,45 @@ MN.RichEditor = function RichEditor(props) {
         codeLanguageHandlerRef.current(target);
       }
     };
+    const onToggleCode = (event) => {
+      const target = event.target;
+      if (!target || typeof target.closest !== 'function') return;
+      const toggle = target.closest('.mn-code-toggle');
+      if (!toggle) {
+        const cell = target.closest('td,th');
+        const editor = elementRef.current;
+        if (editor) {
+          editor.querySelectorAll('.mn-cell-selected').forEach((selected) => selected.classList.remove('mn-cell-selected'));
+        }
+        if (cell && cell.tagName === 'TD') cell.classList.add('mn-cell-selected');
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const block = toggle.closest('.mn-code-block');
+      if (!block) return;
+      const collapsed = block.getAttribute('data-collapsed') === 'true';
+      const label = toggle.querySelector('.mn-code-toggle-text');
+      if (collapsed) {
+        block.removeAttribute('data-collapsed');
+        toggle.setAttribute('aria-expanded', 'true');
+        toggle.setAttribute('title', '收起代码块');
+        toggle.setAttribute('aria-label', '收起代码块');
+        if (label) label.textContent = '收起';
+      } else {
+        block.setAttribute('data-collapsed', 'true');
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.setAttribute('title', '展开代码块');
+        toggle.setAttribute('aria-label', '展开代码块');
+        if (label) label.textContent = '展开';
+      }
+    };
     editor.addEventListener('change', listener, true);
-    return () => editor.removeEventListener('change', listener, true);
+    editor.addEventListener('click', onToggleCode, true);
+    return () => {
+      editor.removeEventListener('change', listener, true);
+      editor.removeEventListener('click', onToggleCode, true);
+    };
   }, []);
 
 
@@ -4511,6 +4685,29 @@ MN.RichEditor = function RichEditor(props) {
           onHover: (index) => setSlashMenu((previous) => (previous ? { ...previous, index } : previous)),
         });
 
+  const tableMenuElement =
+    tableMenu === null
+      ? null
+      : h(MN.ContextMenu, {
+          x: tableMenu.x,
+          y: tableMenu.y,
+          onClose: () => setTableMenu(null),
+          items: [
+            { id: 'row-above', label: MN.t('table.rowAbove'), onClick: () => applyTableAction('rowAbove') },
+            { id: 'row-below', label: MN.t('table.rowBelow'), onClick: () => applyTableAction('rowBelow') },
+            { separator: true },
+            { id: 'col-left', label: MN.t('table.colLeft'), onClick: () => applyTableAction('colLeft') },
+            { id: 'col-right', label: MN.t('table.colRight'), onClick: () => applyTableAction('colRight') },
+            { separator: true },
+            ...(tableMenu.rowIndex > 0
+              ? [{ id: 'row-delete', label: MN.t('table.rowDelete'), danger: true, onClick: () => applyTableAction('rowDelete') }]
+              : []),
+            ...(tableMenu.columnCount > 1
+              ? [{ id: 'col-delete', label: MN.t('table.colDelete'), danger: true, onClick: () => applyTableAction('colDelete') }]
+              : []),
+          ],
+        });
+
   const imageOverlayElement =
     imageOverlay === null
       ? null
@@ -4557,6 +4754,7 @@ MN.RichEditor = function RichEditor(props) {
         'data-placeholder': props.placeholder || '',
         spellCheck: false,
         dangerouslySetInnerHTML: { __html: seedHtml },
+        onContextMenu: openTableMenu,
         onInput: (event) => {
           if (event.target && event.target.classList && event.target.classList.contains('mn-code-lang')) return;
           emit();
@@ -4611,6 +4809,7 @@ MN.RichEditor = function RichEditor(props) {
       },
     ),
     slashMenuElement,
+    tableMenuElement,
     imageOverlayElement,
   );
 };
@@ -7062,6 +7261,12 @@ MN.DICTIONARIES = {
     'common.create': '创建',
     'common.more': '更多操作',
     'common.revealInFileManager': '从文件管理器中打开',
+    'table.rowAbove': '🡅 向上插入1行',
+    'table.rowBelow': '🡇 向下插入1行',
+    'table.colLeft': '🡄 向左插入1列',
+    'table.colRight': '🡆 向右插入1列',
+    'table.rowDelete': '删除所在行',
+    'table.colDelete': '删除所选列',
     'tree.favorites': '收藏',
     'tree.allNotes': '全部笔记',
     'tree.newNoteHere': '在此新建笔记',
@@ -7223,6 +7428,12 @@ MN.DICTIONARIES = {
     'common.create': 'Create',
     'common.more': 'More actions',
     'common.revealInFileManager': 'Open in file manager',
+    'table.rowAbove': '🡅 Insert 1 row above',
+    'table.rowBelow': '🡇 Insert 1 row below',
+    'table.colLeft': '🡄 Insert 1 column left',
+    'table.colRight': '🡆 Insert 1 column right',
+    'table.rowDelete': 'Delete this row',
+    'table.colDelete': 'Delete this column',
     'tree.favorites': 'Favorites',
     'tree.allNotes': 'All notes',
     'tree.newNoteHere': 'New note here',
