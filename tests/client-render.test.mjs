@@ -514,6 +514,16 @@ check('ContextMenu renders items', () => {
   assert.ok(hasClass(element, 'mn-context'));
 });
 
+check('source selection applies markdown formatting wrappers', () => {
+  const env = makeEnv();
+  env.reset([]);
+  assert.equal(env.MN.wrapSourceSelection('hello world', 6, 11, 'bold').markdown, 'hello **world**');
+  assert.equal(env.MN.wrapSourceSelection('hello world', 6, 11, 'italic').markdown, 'hello *world*');
+  assert.equal(env.MN.wrapSourceSelection('hello world', 6, 11, 'underline').markdown, 'hello <u>world</u>');
+  assert.equal(env.MN.wrapSourceSelection('hello world', 6, 11, 'strike').markdown, 'hello ~~world~~');
+  assert.equal(env.MN.wrapSourceSelection('hello', 2, 2, 'bold').changed, false);
+});
+
 check('SourceEditor and RichEditor render', () => {
   const env = makeEnv();
   env.reset([]);
@@ -539,6 +549,20 @@ check('SourceEditor and RichEditor render', () => {
     }),
   );
   assert.ok(hasClass(sourceMenuTree, 'mn-slash-menu'));
+  env.reset([null, { left: 10, top: 20 }]);
+  const sourceSelectionTree = deepRender(
+    env,
+    env.MN.SourceEditor({
+      textareaRef: { current: null },
+      value: 'hello',
+      onChange() {},
+      onFocus() {},
+    }),
+  );
+  assert.ok(hasClass(sourceSelectionTree, 'mn-selection-toolbar'));
+  const sourceSelectionText = [];
+  collectText(sourceSelectionTree, sourceSelectionText);
+  assert.ok(sourceSelectionText.join(' ').includes('selection.bold'));
   const sourceMenuText = [];
   collectText(sourceMenuTree, sourceMenuText);
   assert.ok(sourceMenuText.join(' ').includes('slash.code'));
@@ -670,6 +694,55 @@ check('table row and column shortcuts update markdown', () => {
   );
   const singleColumn = '| A |\n| --- |\n| 1 |';
   assert.equal(env.MN.editTableMarkdown(singleColumn, 1, 1, 0, 'colDelete').changed, false);
+});
+
+check('RichEditor renders the complete table context menu', () => {
+  const env = makeEnv();
+  env.reset([
+    '<p>x</p>',
+    null,
+    null,
+    { x: 10, y: 10, line: 1, rowIndex: 1, columnIndex: 0, columnCount: 2 },
+  ]);
+  const root = deepRender(
+    env,
+    env.MN.RichEditor({
+      markdown: '| A | B |\n| --- | --- |\n| 1 | 2 |',
+      onChange() {},
+      onFocus() {},
+      uploadImage: async () => null,
+      apiRef: { current: null },
+    }),
+  );
+  assert.ok(hasClass(root, 'mn-context'));
+  const text = [];
+  collectText(root, text);
+  const joined = text.join(' ');
+  for (const key of ['table.rowAbove', 'table.rowBelow', 'table.colLeft', 'table.colRight', 'table.rowDelete', 'table.colDelete']) {
+    assert.ok(joined.includes(key), key);
+  }
+});
+
+check('RichEditor renders the text selection toolbar', () => {
+  const env = makeEnv();
+  env.reset(['<p>x</p>', null, null, null, { left: 10, top: 10 }]);
+  const root = deepRender(
+    env,
+    env.MN.RichEditor({
+      markdown: 'hello world',
+      onChange() {},
+      onFocus() {},
+      uploadImage: async () => null,
+      apiRef: { current: null },
+    }),
+  );
+  assert.ok(hasClass(root, 'mn-selection-toolbar'));
+  const text = [];
+  collectText(root, text);
+  const joined = text.join(' ');
+  for (const key of ['selection.bold', 'selection.italic', 'selection.underline', 'selection.strike']) {
+    assert.ok(joined.includes(key), key);
+  }
 });
 
 check('RichEditor renders the slash block menu', () => {

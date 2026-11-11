@@ -917,9 +917,77 @@ MN.setCodeFenceLanguage = function setCodeFenceLanguage(markdown, line, language
   return { markdown: lines.join('\n'), changed: true };
 };
 
+/** 给原文选区套 Markdown / 行内 HTML 标记。 */
+MN.wrapSourceSelection = function wrapSourceSelection(value, start, end, kind) {
+  const text = String(value === undefined || value === null ? '' : value);
+  const wrappers = {
+    bold: ['**', '**'],
+    italic: ['*', '*'],
+    underline: ['<u>', '</u>'],
+    strike: ['~~', '~~'],
+  };
+  const pair = wrappers[kind];
+  if (!pair) return { markdown: text, selectionStart: start, selectionEnd: end, changed: false };
+  const from = Math.max(0, Math.min(text.length, Number(start) || 0));
+  const to = Math.max(from, Math.min(text.length, Number(end) || 0));
+  if (from === to) return { markdown: text, selectionStart: from, selectionEnd: to, changed: false };
+  const selected = text.slice(from, to);
+  const markdown = text.slice(0, from) + pair[0] + selected + pair[1] + text.slice(to);
+  const selectionStart = from + pair[0].length;
+  return {
+    markdown,
+    selectionStart,
+    selectionEnd: selectionStart + selected.length,
+    changed: true,
+  };
+};
+
+/** 划词悬浮格式工具栏：原文 textarea 与渲染视图共用。 */
+MN.SelectionToolbar = function SelectionToolbar(props) {
+  const items = [
+    { kind: 'bold', icon: 'bold', labelKey: 'selection.bold' },
+    { kind: 'italic', icon: 'italic', labelKey: 'selection.italic' },
+    { kind: 'underline', icon: 'underline', labelKey: 'selection.underline' },
+    { kind: 'strike', icon: 'strike', labelKey: 'selection.strike' },
+  ];
+  return h(
+    'div',
+    {
+      className: 'mn-selection-toolbar',
+      style: { left: props.left + 'px', top: props.top + 'px' },
+      onMouseDown: (event) => event.preventDefault(),
+    },
+    items.map((item) =>
+      h(
+        'button',
+        {
+          key: item.kind,
+          type: 'button',
+          className: 'mn-selection-btn',
+          title: MN.t(item.labelKey),
+          'aria-label': MN.t(item.labelKey),
+          onMouseDown: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          },
+          onClick: (event) => {
+            event.preventDefault();
+            props.onAction(item.kind);
+          },
+        },
+        h('span', { className: 'mn-selection-label' }, MN.t(item.labelKey)),
+        h('span', { className: 'mn-selection-icon' }, h(MN.Icon, { name: item.icon, size: 13 })),
+      ),
+    ),
+  );
+};
+
 MN.SourceEditor = function SourceEditor(props) {
   const textareaRef = props.textareaRef;
   const [slashMenu, setSlashMenu] = useState(null);
+  const [selectionToolbar, setSelectionToolbar] = useState(null);
+  const selectionFrameRef = useRef(0);
+  const selectionToolbarSuppressRef = useRef(0);
   const sourceMenuRef = useRef(null);
 
   const closeSlashMenu = () => setSlashMenu(null);
@@ -1049,6 +1117,98 @@ MN.SourceEditor = function SourceEditor(props) {
     return false;
   };
 
+  const hideSelectionToolbar = useCallback(() => {
+    if (selectionFrameRef.current !== 0) {
+      window.cancelAnimationFrame(selectionFrameRef.current);
+      selectionFrameRef.current = 0;
+    }
+    setSelectionToolbar(null);
+  }, []);
+
+  const updateSelectionToolbar = useCallback(() => {
+    if (selectionFrameRef.current !== 0) return;
+    selectionFrameRef.current = window.requestAnimationFrame(() => {
+      selectionFrameRef.current = 0;
+      if (Date.now() < selectionToolbarSuppressRef.current) {
+        setSelectionToolbar(null);
+        return;
+      }
+      const textarea = textareaRef && textareaRef.current;
+      if (!textarea || textarea.selectionStart === textarea.selectionEnd) {
+        setSelectionToolbar(null);
+        return;
+      }
+      const start = Math.min(textarea.selectionStart, textarea.selectionEnd);
+      const end = Math.max(textarea.selectionStart, textarea.selectionEnd);
+      if (String(textarea.value || '').slice(start, end).trim() === '') {
+        setSelectionToolbar(null);
+        return;
+      }
+      const mirror = props.mirrorRef && props.mirrorRef.current;
+      let startRect = null;
+      let endRect = null;
+      try {
+        startRect = MN.measureSourceCaret(textarea, mirror, start);
+        endRect = MN.measureSourceCaret(textarea, mirror, end);
+      } catch (error) {
+        startRect = null;
+        endRect = null;
+      }
+      if (!startRect && !endRect) {
+        setSelectionToolbar(null);
+        return;
+      }
+      const first = startRect || endRect;
+      const last = endRect || startRect;
+      const width = 264;
+      const height = 34;
+      const viewportWidth = window.innerWidth || 1024;
+      const viewportHeight = window.innerHeight || 768;
+      const center = (first.left + last.left) / 2;
+      const left = Math.max(8, Math.min(center - width / 2, viewportWidth - width - 8));
+      let top = Math.min(first.top, last.top) - height - 8;
+      if (top < 8) top = Math.min(viewportHeight - height - 8, Math.max(first.top, last.top) + first.height + 8);
+      setSelectionToolbar((previous) =>
+        previous && Math.abs(previous.left - left) < 1 && Math.abs(previous.top - top) < 1
+          ? previous
+          : { left, top },
+      );
+    });
+  }, []);
+
+  const applySourceSelectionFormat = (kind) => {
+    const textarea = textareaRef && textareaRef.current;
+    if (!textarea) return;
+    const start = Math.min(textarea.selectionStart, textarea.selectionEnd);
+    const end = Math.max(textarea.selectionStart, textarea.selectionEnd);
+    const result = MN.wrapSourceSelection(textarea.value, start, end, kind);
+    if (!result.changed) return;
+    selectionToolbarSuppressRef.current = Date.now() + 300;
+    hideSelectionToolbar();
+    props.onChange(result.markdown);
+    window.requestAnimationFrame(() => {
+      const element = textareaRef && textareaRef.current;
+      if (!element) return;
+      element.focus();
+      try {
+        element.setSelectionRange(result.selectionStart, result.selectionEnd);
+        if (props.onCaretChange) props.onCaretChange();
+      } catch (error) {
+        /* 选区恢复失败不影响格式写入 */
+      }
+    });
+  };
+
+  useEffect(() => {
+    const onViewportChange = () => hideSelectionToolbar();
+    window.addEventListener('scroll', onViewportChange, true);
+    window.addEventListener('resize', onViewportChange);
+    return () => {
+      window.removeEventListener('scroll', onViewportChange, true);
+      window.removeEventListener('resize', onViewportChange);
+    };
+  }, [hideSelectionToolbar]);
+
   useEffect(() => {
     if (!slashMenu) return;
     const menu = sourceMenuRef.current;
@@ -1065,27 +1225,33 @@ MN.SourceEditor = function SourceEditor(props) {
     spellCheck: false,
     onChange: (event) => {
       props.onChange(event.target.value);
+      hideSelectionToolbar();
       if (!(event && event.nativeEvent && event.nativeEvent.isComposing)) detectSlashInput(event);
     },
     onCompositionEnd: (event) => detectSlashInput(event),
     onFocus: props.onFocus,
     onBlur: (event) => {
       closeSlashMenu();
+      hideSelectionToolbar();
       if (props.onBlur) props.onBlur(event);
     },
     onScroll: (event) => {
       closeSlashMenu();
+      hideSelectionToolbar();
       if (props.onScroll) props.onScroll(event);
     },
     onSelect: () => {
       if (props.onCaretChange) props.onCaretChange();
+      updateSelectionToolbar();
     },
     onKeyUp: (event) => {
       if (props.onCaretChange) props.onCaretChange();
+      updateSelectionToolbar();
       if (props.onKeyUp) props.onKeyUp(event);
     },
     onClick: () => {
       if (slashMenu) closeSlashMenu();
+      updateSelectionToolbar();
       if (props.onCaretChange) props.onCaretChange();
     },
     onKeyDown: (event) => {
@@ -1127,7 +1293,16 @@ MN.SourceEditor = function SourceEditor(props) {
           onHover: (index) => setSlashMenu((previous) => (previous ? { ...previous, index } : previous)),
         });
 
-  return h(MN.React.Fragment, null, textarea, menuElement);
+  const selectionElement =
+    selectionToolbar === null
+      ? null
+      : h(MN.SelectionToolbar, {
+          left: selectionToolbar.left,
+          top: selectionToolbar.top,
+          onAction: applySourceSelectionFormat,
+        });
+
+  return h(MN.React.Fragment, null, textarea, menuElement, selectionElement);
 };
 
 /** 渲染视图编辑器（contenteditable）。 */
@@ -1330,6 +1505,9 @@ MN.RichEditor = function RichEditor(props) {
   const [imageOverlay, setImageOverlay] = useState(null);
   const [slashMenu, setSlashMenu] = useState(null);
   const [tableMenu, setTableMenu] = useState(null);
+  const [selectionToolbar, setSelectionToolbar] = useState(null);
+  const selectionFrameRef = useRef(0);
+  const selectionToolbarSuppressRef = useRef(0);
   const slashBlockRef = useRef(null);
   const slashMenuRef = useRef(null);
   const pendingCaretRef = useRef(null);
@@ -1383,7 +1561,93 @@ MN.RichEditor = function RichEditor(props) {
     if (selectedImageRef.current) window.requestAnimationFrame(syncImageOverlay);
   }, [props.onChange, syncImageOverlay]);
 
-  /** 右键表格单元格：记录目标行列并打开快捷编辑菜单。 */
+  const hideSelectionToolbar = useCallback(() => {
+    if (selectionFrameRef.current !== 0) {
+      window.cancelAnimationFrame(selectionFrameRef.current);
+      selectionFrameRef.current = 0;
+    }
+    setSelectionToolbar(null);
+  }, []);
+
+  const updateSelectionToolbar = useCallback(() => {
+    if (selectionFrameRef.current !== 0) return;
+    selectionFrameRef.current = window.requestAnimationFrame(() => {
+      selectionFrameRef.current = 0;
+      if (Date.now() < selectionToolbarSuppressRef.current) {
+        setSelectionToolbar(null);
+        return;
+      }
+      const editor = elementRef.current;
+      const selection = window.getSelection();
+      if (!editor || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        setSelectionToolbar(null);
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      if (!editor.contains(range.startContainer) || !editor.contains(range.endContainer)) {
+        setSelectionToolbar(null);
+        return;
+      }
+      if (String(selection.toString() || '').trim() === '') {
+        setSelectionToolbar(null);
+        return;
+      }
+      const startElement = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+      const endElement = range.endContainer.nodeType === 1 ? range.endContainer : range.endContainer.parentElement;
+      const forbidden = 'pre, code, table, .mn-code-block, .mn-table-wrap, select, input';
+      if (
+        (startElement && startElement.closest(forbidden)) ||
+        (endElement && endElement.closest(forbidden))
+      ) {
+        setSelectionToolbar(null);
+        return;
+      }
+      let rect = null;
+      try {
+        const rects = range.getClientRects ? Array.from(range.getClientRects()) : [];
+        rect = rects.length > 0 ? rects[0] : range.getBoundingClientRect();
+      } catch (error) {
+        rect = null;
+      }
+      if (!rect || (rect.width < 1 && rect.height < 1)) {
+        setSelectionToolbar(null);
+        return;
+      }
+      const width = 264;
+      const height = 34;
+      const viewportWidth = window.innerWidth || 1024;
+      const viewportHeight = window.innerHeight || 768;
+      const left = Math.max(8, Math.min(rect.left + rect.width / 2 - width / 2, viewportWidth - width - 8));
+      let top = rect.top - height - 8;
+      if (top < 8) top = Math.min(viewportHeight - height - 8, rect.bottom + 8);
+      setSelectionToolbar((previous) =>
+        previous && Math.abs(previous.left - left) < 1 && Math.abs(previous.top - top) < 1
+          ? previous
+          : { left, top },
+      );
+    });
+  }, []);
+
+  useEffect(() => {
+    const editor = elementRef.current;
+    if (!editor) return undefined;
+    const onSelectionChange = () => updateSelectionToolbar();
+    const onScroll = () => hideSelectionToolbar();
+    document.addEventListener('selectionchange', onSelectionChange);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      document.removeEventListener('selectionchange', onSelectionChange);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+      if (selectionFrameRef.current !== 0) {
+        window.cancelAnimationFrame(selectionFrameRef.current);
+        selectionFrameRef.current = 0;
+      }
+    };
+  }, [hideSelectionToolbar, updateSelectionToolbar]);
+
+
   const openTableMenu = (event) => {
     const target = event.target;
     if (!target || typeof target.closest !== 'function') return;
@@ -2014,6 +2278,37 @@ MN.RichEditor = function RichEditor(props) {
           onHover: (index) => setSlashMenu((previous) => (previous ? { ...previous, index } : previous)),
         });
 
+  const selectionToolbarElement =
+    selectionToolbar === null
+      ? null
+      : h(MN.SelectionToolbar, {
+          left: selectionToolbar.left,
+          top: selectionToolbar.top,
+          onAction: (kind) => {
+            selectionToolbarSuppressRef.current = Date.now() + 300;
+            hideSelectionToolbar();
+            exec(kind);
+          },
+        });
+
+  const tableMenuItems = [];
+  if (tableMenu !== null) {
+    tableMenuItems.push(
+      { id: 'row-above', label: MN.t('table.rowAbove'), onClick: () => applyTableAction('rowAbove') },
+      { id: 'row-below', label: MN.t('table.rowBelow'), onClick: () => applyTableAction('rowBelow') },
+      { separator: true },
+      { id: 'col-left', label: MN.t('table.colLeft'), onClick: () => applyTableAction('colLeft') },
+      { id: 'col-right', label: MN.t('table.colRight'), onClick: () => applyTableAction('colRight') },
+      { separator: true },
+    );
+    if (tableMenu.rowIndex > 0) {
+      tableMenuItems.push({ id: 'row-delete', label: MN.t('table.rowDelete'), danger: true, onClick: () => applyTableAction('rowDelete') });
+    }
+    if (tableMenu.columnCount > 1) {
+      tableMenuItems.push({ id: 'col-delete', label: MN.t('table.colDelete'), danger: true, onClick: () => applyTableAction('colDelete') });
+    }
+  }
+
   const tableMenuElement =
     tableMenu === null
       ? null
@@ -2021,20 +2316,7 @@ MN.RichEditor = function RichEditor(props) {
           x: tableMenu.x,
           y: tableMenu.y,
           onClose: () => setTableMenu(null),
-          items: [
-            { id: 'row-above', label: MN.t('table.rowAbove'), onClick: () => applyTableAction('rowAbove') },
-            { id: 'row-below', label: MN.t('table.rowBelow'), onClick: () => applyTableAction('rowBelow') },
-            { separator: true },
-            { id: 'col-left', label: MN.t('table.colLeft'), onClick: () => applyTableAction('colLeft') },
-            { id: 'col-right', label: MN.t('table.colRight'), onClick: () => applyTableAction('colRight') },
-            { separator: true },
-            ...(tableMenu.rowIndex > 0
-              ? [{ id: 'row-delete', label: MN.t('table.rowDelete'), danger: true, onClick: () => applyTableAction('rowDelete') }]
-              : []),
-            ...(tableMenu.columnCount > 1
-              ? [{ id: 'col-delete', label: MN.t('table.colDelete'), danger: true, onClick: () => applyTableAction('colDelete') }]
-              : []),
-          ],
+          items: tableMenuItems,
         });
 
   const imageOverlayElement =
@@ -2095,6 +2377,7 @@ MN.RichEditor = function RichEditor(props) {
         onFocus: props.onFocus,
         onBlur: (event) => {
           closeSlashMenu();
+          hideSelectionToolbar();
           if (props.onBlur) props.onBlur(event);
         },
         onScroll: (event) => {
@@ -2137,6 +2420,7 @@ MN.RichEditor = function RichEditor(props) {
         },
       },
     ),
+    selectionToolbarElement,
     slashMenuElement,
     tableMenuElement,
     imageOverlayElement,

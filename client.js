@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
     /** 本包 Client 侧唯一命名空间：各 part 只往这里挂方法/组件。 */
     const MN = {
       id: 'markdown-notes',
-      version: '1.14.3',
+      version: '1.15.1',
       React,
       h,
       useState,
@@ -1651,6 +1651,18 @@ MN.Icon = function Icon(props) {
     case 'nav':
       children.push(h('path', { key: 'a', d: 'M4 6h2.6M4 12h2.6M4 18h2.6M10.5 6H20M10.5 12H20M10.5 18H20' }));
       break;
+    case 'bold':
+      children.push(h('path', { key: 'a', d: 'M7 5h5.5a4 4 0 0 1 0 8H7zM7 13h6a4 4 0 0 1 0 8H7z' }));
+      break;
+    case 'italic':
+      children.push(h('path', { key: 'a', d: 'M10 5h7M7 19h7M14 5l-4 14' }));
+      break;
+    case 'underline':
+      children.push(h('path', { key: 'a', d: 'M7 4v6a5 5 0 0 0 10 0V4M5 20h14' }));
+      break;
+    case 'strike':
+      children.push(h('path', { key: 'a', d: 'M5 12h14M8 8a4 4 0 0 1 4-4h2a4 4 0 0 1 4 4M8 16a4 4 0 0 0 4 4h2a4 4 0 0 0 4-4' }));
+      break;
     case 'task':
       children.push(h('rect', { key: 'a', x: 4, y: 4, width: 16, height: 16, rx: 3 }));
       children.push(h('path', { key: 'b', d: 'm8.3 12.2 2.4 2.5 5-5.3' }));
@@ -1789,6 +1801,13 @@ html[data-platform="darwin"] .mn-root{padding-top:var(--dsh-frame-top-clearance,
 .mn-splitter:hover,.mn-splitter:focus-visible{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 7%,var(--dsw-alias-bg-layer-1,#f6f6f7))}
 .mn-splitter:hover:before,.mn-splitter:focus-visible:before,.mn-splitter[data-dragging="true"]:before{background:var(--dsw-alias-brand-primary,#2f6bff);width:3px;margin-left:-1.5px}
 .mn-splitter[data-dragging="true"]{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 12%,transparent)}
+.mn-selection-toolbar{position:fixed;z-index:70;height:34px;display:flex;align-items:center;gap:1px;padding:3px;background:var(--dsw-alias-bg-overlay,#fff);border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.14));border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18),0 1px 4px rgba(0,0,0,.08)}
+.mn-selection-btn{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 7px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-primary,#1d1d1f);font:inherit;font-size:11px;line-height:1;white-space:nowrap;cursor:pointer;outline:none}
+.mn-selection-btn:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 10%,transparent);color:var(--dsw-alias-brand-primary,#2f6bff)}
+.mn-selection-btn:focus-visible{box-shadow:inset 0 0 0 1px var(--dsw-alias-brand-primary,#2f6bff)}
+.mn-selection-label{font-size:11px}
+.mn-selection-icon{display:inline-flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-secondary,#8a8a90)}
+.mn-selection-btn:hover .mn-selection-icon{color:var(--dsw-alias-brand-primary,#2f6bff)}
 .mn-pane-label{flex:none;height:24px;display:flex;align-items:center;gap:6px;padding:0 16px;font-size:10.5px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;color:var(--dsw-alias-label-secondary,#8a8a90);background:var(--dsw-alias-bg-base,#fff);border-bottom:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,rgba(0,0,0,.07)) 60%,transparent)}
 .mn-pane-label .mn-dot{width:5px;height:5px;border-radius:50%;background:var(--dsw-alias-state-success-primary,#2e7d32);opacity:.75}
 .mn-source{flex:1 1 auto;min-height:0;display:flex;position:relative}
@@ -3588,9 +3607,77 @@ MN.setCodeFenceLanguage = function setCodeFenceLanguage(markdown, line, language
   return { markdown: lines.join('\n'), changed: true };
 };
 
+/** 给原文选区套 Markdown / 行内 HTML 标记。 */
+MN.wrapSourceSelection = function wrapSourceSelection(value, start, end, kind) {
+  const text = String(value === undefined || value === null ? '' : value);
+  const wrappers = {
+    bold: ['**', '**'],
+    italic: ['*', '*'],
+    underline: ['<u>', '</u>'],
+    strike: ['~~', '~~'],
+  };
+  const pair = wrappers[kind];
+  if (!pair) return { markdown: text, selectionStart: start, selectionEnd: end, changed: false };
+  const from = Math.max(0, Math.min(text.length, Number(start) || 0));
+  const to = Math.max(from, Math.min(text.length, Number(end) || 0));
+  if (from === to) return { markdown: text, selectionStart: from, selectionEnd: to, changed: false };
+  const selected = text.slice(from, to);
+  const markdown = text.slice(0, from) + pair[0] + selected + pair[1] + text.slice(to);
+  const selectionStart = from + pair[0].length;
+  return {
+    markdown,
+    selectionStart,
+    selectionEnd: selectionStart + selected.length,
+    changed: true,
+  };
+};
+
+/** 划词悬浮格式工具栏：原文 textarea 与渲染视图共用。 */
+MN.SelectionToolbar = function SelectionToolbar(props) {
+  const items = [
+    { kind: 'bold', icon: 'bold', labelKey: 'selection.bold' },
+    { kind: 'italic', icon: 'italic', labelKey: 'selection.italic' },
+    { kind: 'underline', icon: 'underline', labelKey: 'selection.underline' },
+    { kind: 'strike', icon: 'strike', labelKey: 'selection.strike' },
+  ];
+  return h(
+    'div',
+    {
+      className: 'mn-selection-toolbar',
+      style: { left: props.left + 'px', top: props.top + 'px' },
+      onMouseDown: (event) => event.preventDefault(),
+    },
+    items.map((item) =>
+      h(
+        'button',
+        {
+          key: item.kind,
+          type: 'button',
+          className: 'mn-selection-btn',
+          title: MN.t(item.labelKey),
+          'aria-label': MN.t(item.labelKey),
+          onMouseDown: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          },
+          onClick: (event) => {
+            event.preventDefault();
+            props.onAction(item.kind);
+          },
+        },
+        h('span', { className: 'mn-selection-label' }, MN.t(item.labelKey)),
+        h('span', { className: 'mn-selection-icon' }, h(MN.Icon, { name: item.icon, size: 13 })),
+      ),
+    ),
+  );
+};
+
 MN.SourceEditor = function SourceEditor(props) {
   const textareaRef = props.textareaRef;
   const [slashMenu, setSlashMenu] = useState(null);
+  const [selectionToolbar, setSelectionToolbar] = useState(null);
+  const selectionFrameRef = useRef(0);
+  const selectionToolbarSuppressRef = useRef(0);
   const sourceMenuRef = useRef(null);
 
   const closeSlashMenu = () => setSlashMenu(null);
@@ -3720,6 +3807,98 @@ MN.SourceEditor = function SourceEditor(props) {
     return false;
   };
 
+  const hideSelectionToolbar = useCallback(() => {
+    if (selectionFrameRef.current !== 0) {
+      window.cancelAnimationFrame(selectionFrameRef.current);
+      selectionFrameRef.current = 0;
+    }
+    setSelectionToolbar(null);
+  }, []);
+
+  const updateSelectionToolbar = useCallback(() => {
+    if (selectionFrameRef.current !== 0) return;
+    selectionFrameRef.current = window.requestAnimationFrame(() => {
+      selectionFrameRef.current = 0;
+      if (Date.now() < selectionToolbarSuppressRef.current) {
+        setSelectionToolbar(null);
+        return;
+      }
+      const textarea = textareaRef && textareaRef.current;
+      if (!textarea || textarea.selectionStart === textarea.selectionEnd) {
+        setSelectionToolbar(null);
+        return;
+      }
+      const start = Math.min(textarea.selectionStart, textarea.selectionEnd);
+      const end = Math.max(textarea.selectionStart, textarea.selectionEnd);
+      if (String(textarea.value || '').slice(start, end).trim() === '') {
+        setSelectionToolbar(null);
+        return;
+      }
+      const mirror = props.mirrorRef && props.mirrorRef.current;
+      let startRect = null;
+      let endRect = null;
+      try {
+        startRect = MN.measureSourceCaret(textarea, mirror, start);
+        endRect = MN.measureSourceCaret(textarea, mirror, end);
+      } catch (error) {
+        startRect = null;
+        endRect = null;
+      }
+      if (!startRect && !endRect) {
+        setSelectionToolbar(null);
+        return;
+      }
+      const first = startRect || endRect;
+      const last = endRect || startRect;
+      const width = 264;
+      const height = 34;
+      const viewportWidth = window.innerWidth || 1024;
+      const viewportHeight = window.innerHeight || 768;
+      const center = (first.left + last.left) / 2;
+      const left = Math.max(8, Math.min(center - width / 2, viewportWidth - width - 8));
+      let top = Math.min(first.top, last.top) - height - 8;
+      if (top < 8) top = Math.min(viewportHeight - height - 8, Math.max(first.top, last.top) + first.height + 8);
+      setSelectionToolbar((previous) =>
+        previous && Math.abs(previous.left - left) < 1 && Math.abs(previous.top - top) < 1
+          ? previous
+          : { left, top },
+      );
+    });
+  }, []);
+
+  const applySourceSelectionFormat = (kind) => {
+    const textarea = textareaRef && textareaRef.current;
+    if (!textarea) return;
+    const start = Math.min(textarea.selectionStart, textarea.selectionEnd);
+    const end = Math.max(textarea.selectionStart, textarea.selectionEnd);
+    const result = MN.wrapSourceSelection(textarea.value, start, end, kind);
+    if (!result.changed) return;
+    selectionToolbarSuppressRef.current = Date.now() + 300;
+    hideSelectionToolbar();
+    props.onChange(result.markdown);
+    window.requestAnimationFrame(() => {
+      const element = textareaRef && textareaRef.current;
+      if (!element) return;
+      element.focus();
+      try {
+        element.setSelectionRange(result.selectionStart, result.selectionEnd);
+        if (props.onCaretChange) props.onCaretChange();
+      } catch (error) {
+        /* 选区恢复失败不影响格式写入 */
+      }
+    });
+  };
+
+  useEffect(() => {
+    const onViewportChange = () => hideSelectionToolbar();
+    window.addEventListener('scroll', onViewportChange, true);
+    window.addEventListener('resize', onViewportChange);
+    return () => {
+      window.removeEventListener('scroll', onViewportChange, true);
+      window.removeEventListener('resize', onViewportChange);
+    };
+  }, [hideSelectionToolbar]);
+
   useEffect(() => {
     if (!slashMenu) return;
     const menu = sourceMenuRef.current;
@@ -3736,27 +3915,33 @@ MN.SourceEditor = function SourceEditor(props) {
     spellCheck: false,
     onChange: (event) => {
       props.onChange(event.target.value);
+      hideSelectionToolbar();
       if (!(event && event.nativeEvent && event.nativeEvent.isComposing)) detectSlashInput(event);
     },
     onCompositionEnd: (event) => detectSlashInput(event),
     onFocus: props.onFocus,
     onBlur: (event) => {
       closeSlashMenu();
+      hideSelectionToolbar();
       if (props.onBlur) props.onBlur(event);
     },
     onScroll: (event) => {
       closeSlashMenu();
+      hideSelectionToolbar();
       if (props.onScroll) props.onScroll(event);
     },
     onSelect: () => {
       if (props.onCaretChange) props.onCaretChange();
+      updateSelectionToolbar();
     },
     onKeyUp: (event) => {
       if (props.onCaretChange) props.onCaretChange();
+      updateSelectionToolbar();
       if (props.onKeyUp) props.onKeyUp(event);
     },
     onClick: () => {
       if (slashMenu) closeSlashMenu();
+      updateSelectionToolbar();
       if (props.onCaretChange) props.onCaretChange();
     },
     onKeyDown: (event) => {
@@ -3798,7 +3983,16 @@ MN.SourceEditor = function SourceEditor(props) {
           onHover: (index) => setSlashMenu((previous) => (previous ? { ...previous, index } : previous)),
         });
 
-  return h(MN.React.Fragment, null, textarea, menuElement);
+  const selectionElement =
+    selectionToolbar === null
+      ? null
+      : h(MN.SelectionToolbar, {
+          left: selectionToolbar.left,
+          top: selectionToolbar.top,
+          onAction: applySourceSelectionFormat,
+        });
+
+  return h(MN.React.Fragment, null, textarea, menuElement, selectionElement);
 };
 
 /** 渲染视图编辑器（contenteditable）。 */
@@ -4001,6 +4195,9 @@ MN.RichEditor = function RichEditor(props) {
   const [imageOverlay, setImageOverlay] = useState(null);
   const [slashMenu, setSlashMenu] = useState(null);
   const [tableMenu, setTableMenu] = useState(null);
+  const [selectionToolbar, setSelectionToolbar] = useState(null);
+  const selectionFrameRef = useRef(0);
+  const selectionToolbarSuppressRef = useRef(0);
   const slashBlockRef = useRef(null);
   const slashMenuRef = useRef(null);
   const pendingCaretRef = useRef(null);
@@ -4054,7 +4251,93 @@ MN.RichEditor = function RichEditor(props) {
     if (selectedImageRef.current) window.requestAnimationFrame(syncImageOverlay);
   }, [props.onChange, syncImageOverlay]);
 
-  /** 右键表格单元格：记录目标行列并打开快捷编辑菜单。 */
+  const hideSelectionToolbar = useCallback(() => {
+    if (selectionFrameRef.current !== 0) {
+      window.cancelAnimationFrame(selectionFrameRef.current);
+      selectionFrameRef.current = 0;
+    }
+    setSelectionToolbar(null);
+  }, []);
+
+  const updateSelectionToolbar = useCallback(() => {
+    if (selectionFrameRef.current !== 0) return;
+    selectionFrameRef.current = window.requestAnimationFrame(() => {
+      selectionFrameRef.current = 0;
+      if (Date.now() < selectionToolbarSuppressRef.current) {
+        setSelectionToolbar(null);
+        return;
+      }
+      const editor = elementRef.current;
+      const selection = window.getSelection();
+      if (!editor || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        setSelectionToolbar(null);
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      if (!editor.contains(range.startContainer) || !editor.contains(range.endContainer)) {
+        setSelectionToolbar(null);
+        return;
+      }
+      if (String(selection.toString() || '').trim() === '') {
+        setSelectionToolbar(null);
+        return;
+      }
+      const startElement = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+      const endElement = range.endContainer.nodeType === 1 ? range.endContainer : range.endContainer.parentElement;
+      const forbidden = 'pre, code, table, .mn-code-block, .mn-table-wrap, select, input';
+      if (
+        (startElement && startElement.closest(forbidden)) ||
+        (endElement && endElement.closest(forbidden))
+      ) {
+        setSelectionToolbar(null);
+        return;
+      }
+      let rect = null;
+      try {
+        const rects = range.getClientRects ? Array.from(range.getClientRects()) : [];
+        rect = rects.length > 0 ? rects[0] : range.getBoundingClientRect();
+      } catch (error) {
+        rect = null;
+      }
+      if (!rect || (rect.width < 1 && rect.height < 1)) {
+        setSelectionToolbar(null);
+        return;
+      }
+      const width = 264;
+      const height = 34;
+      const viewportWidth = window.innerWidth || 1024;
+      const viewportHeight = window.innerHeight || 768;
+      const left = Math.max(8, Math.min(rect.left + rect.width / 2 - width / 2, viewportWidth - width - 8));
+      let top = rect.top - height - 8;
+      if (top < 8) top = Math.min(viewportHeight - height - 8, rect.bottom + 8);
+      setSelectionToolbar((previous) =>
+        previous && Math.abs(previous.left - left) < 1 && Math.abs(previous.top - top) < 1
+          ? previous
+          : { left, top },
+      );
+    });
+  }, []);
+
+  useEffect(() => {
+    const editor = elementRef.current;
+    if (!editor) return undefined;
+    const onSelectionChange = () => updateSelectionToolbar();
+    const onScroll = () => hideSelectionToolbar();
+    document.addEventListener('selectionchange', onSelectionChange);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => {
+      document.removeEventListener('selectionchange', onSelectionChange);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+      if (selectionFrameRef.current !== 0) {
+        window.cancelAnimationFrame(selectionFrameRef.current);
+        selectionFrameRef.current = 0;
+      }
+    };
+  }, [hideSelectionToolbar, updateSelectionToolbar]);
+
+
   const openTableMenu = (event) => {
     const target = event.target;
     if (!target || typeof target.closest !== 'function') return;
@@ -4685,6 +4968,37 @@ MN.RichEditor = function RichEditor(props) {
           onHover: (index) => setSlashMenu((previous) => (previous ? { ...previous, index } : previous)),
         });
 
+  const selectionToolbarElement =
+    selectionToolbar === null
+      ? null
+      : h(MN.SelectionToolbar, {
+          left: selectionToolbar.left,
+          top: selectionToolbar.top,
+          onAction: (kind) => {
+            selectionToolbarSuppressRef.current = Date.now() + 300;
+            hideSelectionToolbar();
+            exec(kind);
+          },
+        });
+
+  const tableMenuItems = [];
+  if (tableMenu !== null) {
+    tableMenuItems.push(
+      { id: 'row-above', label: MN.t('table.rowAbove'), onClick: () => applyTableAction('rowAbove') },
+      { id: 'row-below', label: MN.t('table.rowBelow'), onClick: () => applyTableAction('rowBelow') },
+      { separator: true },
+      { id: 'col-left', label: MN.t('table.colLeft'), onClick: () => applyTableAction('colLeft') },
+      { id: 'col-right', label: MN.t('table.colRight'), onClick: () => applyTableAction('colRight') },
+      { separator: true },
+    );
+    if (tableMenu.rowIndex > 0) {
+      tableMenuItems.push({ id: 'row-delete', label: MN.t('table.rowDelete'), danger: true, onClick: () => applyTableAction('rowDelete') });
+    }
+    if (tableMenu.columnCount > 1) {
+      tableMenuItems.push({ id: 'col-delete', label: MN.t('table.colDelete'), danger: true, onClick: () => applyTableAction('colDelete') });
+    }
+  }
+
   const tableMenuElement =
     tableMenu === null
       ? null
@@ -4692,20 +5006,7 @@ MN.RichEditor = function RichEditor(props) {
           x: tableMenu.x,
           y: tableMenu.y,
           onClose: () => setTableMenu(null),
-          items: [
-            { id: 'row-above', label: MN.t('table.rowAbove'), onClick: () => applyTableAction('rowAbove') },
-            { id: 'row-below', label: MN.t('table.rowBelow'), onClick: () => applyTableAction('rowBelow') },
-            { separator: true },
-            { id: 'col-left', label: MN.t('table.colLeft'), onClick: () => applyTableAction('colLeft') },
-            { id: 'col-right', label: MN.t('table.colRight'), onClick: () => applyTableAction('colRight') },
-            { separator: true },
-            ...(tableMenu.rowIndex > 0
-              ? [{ id: 'row-delete', label: MN.t('table.rowDelete'), danger: true, onClick: () => applyTableAction('rowDelete') }]
-              : []),
-            ...(tableMenu.columnCount > 1
-              ? [{ id: 'col-delete', label: MN.t('table.colDelete'), danger: true, onClick: () => applyTableAction('colDelete') }]
-              : []),
-          ],
+          items: tableMenuItems,
         });
 
   const imageOverlayElement =
@@ -4766,6 +5067,7 @@ MN.RichEditor = function RichEditor(props) {
         onFocus: props.onFocus,
         onBlur: (event) => {
           closeSlashMenu();
+          hideSelectionToolbar();
           if (props.onBlur) props.onBlur(event);
         },
         onScroll: (event) => {
@@ -4808,6 +5110,7 @@ MN.RichEditor = function RichEditor(props) {
         },
       },
     ),
+    selectionToolbarElement,
     slashMenuElement,
     tableMenuElement,
     imageOverlayElement,
@@ -7265,8 +7568,12 @@ MN.DICTIONARIES = {
     'table.rowBelow': '🡇 向下插入1行',
     'table.colLeft': '🡄 向左插入1列',
     'table.colRight': '🡆 向右插入1列',
-    'table.rowDelete': '删除所在行',
-    'table.colDelete': '删除所选列',
+    'table.rowDelete': '删除所在行 🡆',
+    'table.colDelete': '删除所在列 🡅',
+    'selection.bold': '加粗',
+    'selection.italic': '斜体',
+    'selection.underline': '下划线',
+    'selection.strike': '删除线',
     'tree.favorites': '收藏',
     'tree.allNotes': '全部笔记',
     'tree.newNoteHere': '在此新建笔记',
@@ -7432,8 +7739,12 @@ MN.DICTIONARIES = {
     'table.rowBelow': '🡇 Insert 1 row below',
     'table.colLeft': '🡄 Insert 1 column left',
     'table.colRight': '🡆 Insert 1 column right',
-    'table.rowDelete': 'Delete this row',
-    'table.colDelete': 'Delete this column',
+    'table.rowDelete': 'Delete this row 🡆',
+    'table.colDelete': 'Delete this column 🡅',
+    'selection.bold': 'Bold',
+    'selection.italic': 'Italic',
+    'selection.underline': 'Underline',
+    'selection.strike': 'Strikethrough',
     'tree.favorites': 'Favorites',
     'tree.allNotes': 'All notes',
     'tree.newNoteHere': 'New note here',

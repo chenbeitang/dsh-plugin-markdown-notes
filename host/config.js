@@ -13,7 +13,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 
 /** 插件语义版本，同时给 /api/health 与 Client 兜底文案使用。 */
-export const VERSION = '1.14.3';
+export const VERSION = '1.15.1';
 
 /** 默认笔记根目录名。 */
 export const DEFAULT_STORAGE_NAME = 'DSH Markdown Notes';

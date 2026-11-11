@@ -154,6 +154,18 @@ MN.Icon = function Icon(props) {
     case 'nav':
       children.push(h('path', { key: 'a', d: 'M4 6h2.6M4 12h2.6M4 18h2.6M10.5 6H20M10.5 12H20M10.5 18H20' }));
       break;
+    case 'bold':
+      children.push(h('path', { key: 'a', d: 'M7 5h5.5a4 4 0 0 1 0 8H7zM7 13h6a4 4 0 0 1 0 8H7z' }));
+      break;
+    case 'italic':
+      children.push(h('path', { key: 'a', d: 'M10 5h7M7 19h7M14 5l-4 14' }));
+      break;
+    case 'underline':
+      children.push(h('path', { key: 'a', d: 'M7 4v6a5 5 0 0 0 10 0V4M5 20h14' }));
+      break;
+    case 'strike':
+      children.push(h('path', { key: 'a', d: 'M5 12h14M8 8a4 4 0 0 1 4-4h2a4 4 0 0 1 4 4M8 16a4 4 0 0 0 4 4h2a4 4 0 0 0 4-4' }));
+      break;
     case 'task':
       children.push(h('rect', { key: 'a', x: 4, y: 4, width: 16, height: 16, rx: 3 }));
       children.push(h('path', { key: 'b', d: 'm8.3 12.2 2.4 2.5 5-5.3' }));
