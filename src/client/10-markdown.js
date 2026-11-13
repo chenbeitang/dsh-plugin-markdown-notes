@@ -349,6 +349,7 @@ MN.md = (function () {
   function renderBlocks(lines, options, nested) {
     const trackLines = !nested && options && options.trackLines === true;
     const attrs = (startLine, endLine) => (trackLines ? ' data-line="' + startLine + '" data-line-end="' + endLine + '"' : '');
+    if (!options.__codeState) options.__codeState = { next: 0 };
     const out = [];
     let index = 0;
     while (index < lines.length) {
@@ -374,7 +375,9 @@ MN.md = (function () {
         const code = buffer.join('\n');
         const highlighted = language === '' ? escapeHtml(code) : highlightCode(code, language);
         const pre = '<pre' + attrs(startLine, index) + '><code' + className + '>' + highlighted + '</code></pre>';
-        out.push('<div class="mn-code-block">' + codeLanguageSelect(language, startLine) + pre + '</div>');
+        const codeIndex = options.__codeState.next;
+        options.__codeState.next += 1;
+        out.push('<div class="mn-code-block" data-code-index="' + codeIndex + '">' + codeLanguageSelect(language, startLine) + pre + '</div>');
         continue;
       }
 

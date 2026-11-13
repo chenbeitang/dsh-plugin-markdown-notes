@@ -2273,6 +2273,7 @@ MN.AppPage = function AppPage(props) {
                     h(MN.RichEditor, {
                       key: note.path,
                       markdown: note.content,
+                      notePath: note.path,
                       placeholder: t('editor.previewPlaceholder'),
                       onChange: handleContentChange,
                       onFocus: () => {

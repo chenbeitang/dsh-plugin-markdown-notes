@@ -1744,9 +1744,68 @@ MN.ImageViewer = function ImageViewer(props) {
 };
 
 
+/** 代码块收起状态：按笔记路径存入 localStorage，重新打开文档时恢复。 */
+function codeCollapseStorageKey(notePath) {
+  return 'mn-code-collapsed:' + encodeURIComponent(String(notePath || ''));
+}
+
+function loadCollapsedCodeBlocks(notePath) {
+  if (!notePath) return new Set();
+  try {
+    const raw = window.localStorage.getItem(codeCollapseStorageKey(notePath));
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((value) => Number.isInteger(value) && value >= 0));
+  } catch (error) {
+    return new Set();
+  }
+}
+
+function saveCollapsedCodeBlocks(notePath, indexes) {
+  if (!notePath) return;
+  try {
+    window.localStorage.setItem(
+      codeCollapseStorageKey(notePath),
+      JSON.stringify(Array.from(indexes).filter((value) => Number.isInteger(value) && value >= 0).sort((a, b) => a - b)),
+    );
+  } catch (error) {
+    /* localStorage 不可用时只保留当前会话内的状态 */
+  }
+}
+
+function setCodeBlockCollapsed(block, collapsed) {
+  if (!block) return;
+  if (collapsed) block.setAttribute('data-collapsed', 'true');
+  else block.removeAttribute('data-collapsed');
+  const toggle = typeof block.querySelector === 'function' ? block.querySelector('.mn-code-toggle') : null;
+  if (!toggle) return;
+  toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  toggle.setAttribute('title', collapsed ? '展开代码块' : '收起代码块');
+  toggle.setAttribute('aria-label', collapsed ? '展开代码块' : '收起代码块');
+  const label = toggle.querySelector('.mn-code-toggle-text');
+  if (label) label.textContent = collapsed ? '▸ 展开' : '▾ 收起';
+}
+
+function applyCodeCollapseStates(editor, indexes) {
+  if (!editor || !indexes || typeof editor.querySelectorAll !== 'function') return;
+  const blocks = editor.querySelectorAll('.mn-code-block[data-code-index]');
+  for (const block of blocks) {
+    const index = Number.parseInt(block.getAttribute('data-code-index'), 10);
+    if (Number.isFinite(index)) setCodeBlockCollapsed(block, indexes.has(index));
+  }
+}
+
+MN.loadCollapsedCodeBlocks = loadCollapsedCodeBlocks;
+MN.saveCollapsedCodeBlocks = saveCollapsedCodeBlocks;
+MN.applyCodeCollapseStates = applyCodeCollapseStates;
+
 MN.RichEditor = function RichEditor(props) {
   const elementRef = useRef(null);
   const lastEmittedRef = useRef(typeof props.markdown === 'string' ? props.markdown : '');
+  const notePathRef = useRef(props.notePath || '');
+  notePathRef.current = props.notePath || '';
+  const collapsedCodeRef = useRef(loadCollapsedCodeBlocks(props.notePath || ''));
   const [seedHtml, setSeedHtml] = useState(() => MN.md.render(props.markdown || '', { mediaUrl: MN.mediaUrl, trackLines: true }));
   const uploadRef = useRef(props.uploadImage);
   uploadRef.current = props.uploadImage;
@@ -2004,19 +2063,12 @@ MN.RichEditor = function RichEditor(props) {
       const block = toggle.closest('.mn-code-block');
       if (!block) return;
       const collapsed = block.getAttribute('data-collapsed') === 'true';
-      const label = toggle.querySelector('.mn-code-toggle-text');
-      if (collapsed) {
-        block.removeAttribute('data-collapsed');
-        toggle.setAttribute('aria-expanded', 'true');
-        toggle.setAttribute('title', '收起代码块');
-        toggle.setAttribute('aria-label', '收起代码块');
-        if (label) label.textContent = '▾ 收起';
-      } else {
-        block.setAttribute('data-collapsed', 'true');
-        toggle.setAttribute('aria-expanded', 'false');
-        toggle.setAttribute('title', '展开代码块');
-        toggle.setAttribute('aria-label', '展开代码块');
-        if (label) label.textContent = '▸ 展开';
+      setCodeBlockCollapsed(block, !collapsed);
+      const index = Number.parseInt(block.getAttribute('data-code-index'), 10);
+      if (Number.isFinite(index) && notePathRef.current) {
+        if (collapsed) collapsedCodeRef.current.delete(index);
+        else collapsedCodeRef.current.add(index);
+        saveCollapsedCodeBlocks(notePathRef.current, collapsedCodeRef.current);
       }
     };
     editor.addEventListener('change', listener, true);
@@ -2205,6 +2257,19 @@ MN.RichEditor = function RichEditor(props) {
     lastEmittedRef.current = props.markdown;
     setSeedHtml(MN.md.render(props.markdown, { mediaUrl: MN.mediaUrl, trackLines: true }));
   }, [props.markdown]);
+
+  // 笔记切换或重新挂载时恢复代码块收起状态。
+  useEffect(() => {
+    const path = props.notePath || '';
+    notePathRef.current = path;
+    collapsedCodeRef.current = loadCollapsedCodeBlocks(path);
+    applyCodeCollapseStates(elementRef.current, collapsedCodeRef.current);
+  }, [props.notePath]);
+
+  // 重新渲染（语言切换 / 外部编辑 / 打开文档）后重新套用收起状态。
+  useEffect(() => {
+    applyCodeCollapseStates(elementRef.current, collapsedCodeRef.current);
+  }, [seedHtml]);
 
   // 外部重渲染后，选中的图片可能已被替换：重新对齐或清除选择。
   useEffect(() => {

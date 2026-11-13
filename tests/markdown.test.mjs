@@ -46,6 +46,10 @@ check('code fence is escaped, not formatted', () => {
   assert.doesNotMatch(html, /<b>/);
   assert.match(html, /class="tok-keyword"/);
   assert.match(html, /class="tok-string"/);
+  assert.match(html, /data-code-index="0"/);
+  const twoBlocks = render('```js\na\n```\n\n```py\nb\n```');
+  assert.match(twoBlocks, /data-code-index="0"/);
+  assert.match(twoBlocks, /data-code-index="1"/);
 });
 
 function highlightedText(html) {
@@ -105,7 +109,7 @@ check('unknown and plain languages do not break', () => {
 
 check('code block language selector', () => {
   const plain = render('```\nplain\n```');
-  assert.match(plain, /<div class="mn-code-block">/);
+  assert.match(plain, /<div class="mn-code-block"[^>]*>/);
   assert.match(plain, /<select class="mn-code-lang"[^>]*data-code-line="1"/);
   assert.match(plain, /<option value="text" selected>text<\/option>/);
   assert.match(plain, /<pre><code>/);

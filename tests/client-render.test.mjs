@@ -515,6 +515,22 @@ check('ContextMenu renders items', () => {
   assert.ok(hasClass(element, 'mn-context'));
 });
 
+check('code collapse state persists per note path', () => {
+  const env = makeEnv();
+  env.reset([]);
+  const store = {};
+  windowStub.localStorage = {
+    getItem: (key) => (Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null),
+    setItem: (key, value) => {
+      store[key] = String(value);
+    },
+  };
+  env.MN.saveCollapsedCodeBlocks('a/b.md', new Set([2, 0]));
+  assert.deepEqual(Array.from(env.MN.loadCollapsedCodeBlocks('a/b.md')).sort((a, b) => a - b), [0, 2]);
+  assert.equal(env.MN.loadCollapsedCodeBlocks('other.md').size, 0);
+  delete windowStub.localStorage;
+});
+
 check('source scroll top reveals an offscreen caret', () => {
   const env = makeEnv();
   env.reset([]);
