@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
     /** 本包 Client 侧唯一命名空间：各 part 只往这里挂方法/组件。 */
     const MN = {
       id: 'markdown-notes',
-      version: '1.18.1',
+      version: '1.18.2',
       React,
       h,
       useState,
@@ -767,15 +767,39 @@ MN.md = (function () {
   /* HTML → Markdown（contenteditable 回写）                              */
   /* ------------------------------------------------------------------ */
 
-  /** 转义会改变 Markdown 语义的普通文本字符。 */
+  /** 只转义会改变 Markdown 语义的普通文本字符，避免给单独的 `_` 等加无谓反斜杠。 */
   function escapeMdText(text) {
-    let out = String(text === undefined || text === null ? '' : text)
-      .replace(/\\/g, '\\\\')
-      .replace(/([`*_\[\]~<])/g, '\\$1');
-    out = out.replace(/^(\s*)([#>])/, (match, lead, char) => lead + '\\' + char);
-    out = out.replace(/^(\s*)([-+])(\s)/, (match, lead, char, space) => lead + '\\' + char + space);
-    out = out.replace(/^(\s*)(\d+)\.(\s)/, (match, lead, number, space) => lead + number + '\\.' + space);
-    return out;
+    const held = [];
+    const hold = (value) => {
+      held.push(value);
+      return '\uE000' + (held.length - 1) + '\uE000';
+    };
+    let out = String(text === undefined || text === null ? '' : text).replace(/\\/g, '\\\\');
+
+    // 完整构造才需要保护；不完整的单个字符保持原样。
+    out = out.replace(/(`+)([^`\n]+?)\1/g, (match, ticks, body) => hold('\\' + ticks) + body + hold('\\' + ticks));
+    out = out.replace(/!?\[[^\]\n]*\]\([^)\n]*\)/g, (match) => {
+      const index = match.indexOf('[');
+      return match.slice(0, index) + hold('\\[') + match.slice(index + 1);
+    });
+    out = out.replace(/\*\*\*([^*\n]+)\*\*\*/g, (match, body) => hold('\\*\\*\\*') + body + hold('\\*\\*\\*'));
+    out = out.replace(/\*\*([^*\n]+)\*\*/g, (match, body) => hold('\\*\\*') + body + hold('\\*\\*'));
+    out = out.replace(/__([^_\n]+)__/g, (match, body) => hold('\\_\\_') + body + hold('\\_\\_'));
+    out = out.replace(/(^|[^*])\*([^*\n]+)\*(?=[^*]|$)/g, (match, lead, body) => lead + hold('\\*') + body + hold('\\*'));
+    out = out.replace(/(^|[^\w])_([^_\n]+)_(?=[^\w]|$)/g, (match, lead, body) => lead + hold('\\_') + body + hold('\\_'));
+    out = out.replace(/~~([^~\n]+)~~/g, (match, body) => hold('\\~\\~') + body + hold('\\~\\~'));
+    out = out.replace(/==([^=\n]+)==/g, (match, body) => hold('\\=\\=') + body + hold('\\=\\='));
+    out = out.replace(/<\/?(?:u|mark|sub|sup|kbd|br)\b[^>]*>/gi, (match) => hold('\\<') + match.slice(1));
+
+    // 行首块级标记只在真的会形成 Markdown 块时转义。
+    out = out.replace(/(^|\n)(\s*)#(?=\s)/g, '$1$2\\#');
+    out = out.replace(/(^|\n)(\s*)>/g, '$1$2\\>');
+    out = out.replace(/(^|\n)(\s*)([-+*])(\s)/g, '$1$2\\$3$4');
+    out = out.replace(/(^|\n)(\s*)(\d+)\.(\s)/g, '$1$2$3\\.$4');
+    out = out.replace(/(^|\n)(\s*)([-*_])(?=\3{2,}\s*(?:\n|$))/g, '$1$2\\$3');
+    out = out.replace(/(^|\n)(\s*)(`{3,}|~{3,})/g, '$1$2\\$3');
+
+    return out.replace(/\uE000(\d+)\uE000/g, (match, index) => held[Number(index)] ?? match);
   }
 
   function inlineNodes(nodes, context) {

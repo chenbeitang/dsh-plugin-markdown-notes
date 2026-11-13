@@ -165,6 +165,30 @@ check('htmlToMarkdown ignores the code block header', () => {
   assert.equal(MN.md.htmlToMarkdown(root), '```java\nclass A {}\n```');
 });
 
+check('htmlToMarkdown only escapes actual markdown constructs', () => {
+  const toMd = (value) =>
+    MN.md.htmlToMarkdown({
+      nodeType: 1,
+      tagName: 'DIV',
+      childNodes: [{ nodeType: 3, nodeValue: value, textContent: value }],
+      textContent: value,
+    });
+  assert.equal(toMd('snake_case and a_b'), 'snake_case and a_b');
+  assert.equal(toMd('2 * 3 = 6'), '2 * 3 = 6');
+  assert.equal(toMd('a < b > c'), 'a < b > c');
+  assert.equal(toMd('[note]'), '[note]');
+  assert.equal(toMd('`lone'), '`lone');
+  assert.equal(toMd('_emphasis_'), '\\_emphasis\\_');
+  assert.equal(toMd('**bold**'), '\\*\\*bold\\*\\*');
+  assert.equal(toMd('[x](https://a)'), '\\[x](https://a)');
+  assert.equal(toMd('<u>x</u>'), '\\<u>x\\</u>');
+  assert.equal(toMd('---'), '\\---');
+  assert.equal(toMd('* item'), '\\* item');
+  assert.equal(toMd('#not heading'), '#not heading');
+  assert.equal(toMd('# heading'), '\\# heading');
+  assert.equal(toMd('```'), '\\```');
+});
+
 check('links and images', () => {
   const html = render('[site](https://example.com?a=1&b=2) ![shot](assets/a.png)', {
     mediaUrl: (rel) => '/markdown-notes/api/media?path=' + encodeURIComponent(rel),
