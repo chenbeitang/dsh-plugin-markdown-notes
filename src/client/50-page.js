@@ -323,6 +323,27 @@ MN.AppPage = function AppPage(props) {
   const filteredTree = useMemo(() => MN.filterTree(state.tree, query), [state.tree, query]);
   const activeFavorite = note ? favoriteSet.has(note.path) : false;
 
+  // 应用空闲时预加载 Mermaid；只加载库、不渲染图表，避免打开文档后滚动到图表才解析大脚本。
+  useEffect(() => {
+    if (typeof MN.loadMermaidLibrary !== 'function') return undefined;
+    let idleId = 0;
+    let timer = 0;
+    const start = () => {
+      timer = window.setTimeout(() => {
+        MN.loadMermaidLibrary().catch(() => {});
+      }, 600);
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+      idleId = window.requestIdleCallback(start, { timeout: 2500 });
+    } else {
+      timer = window.setTimeout(start, 1200);
+    }
+    return () => {
+      if (idleId !== 0 && typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(idleId);
+      window.clearTimeout(timer);
+    };
+  }, []);
+
   const showToast = useCallback((message, kind) => {
     if (!mountedRef.current) return;
     setToast({ message: String(message || ''), kind: kind || 'info', id: MN.uid('toast') });

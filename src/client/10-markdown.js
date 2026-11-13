@@ -42,7 +42,7 @@ MN.md = (function () {
   const CODE_LANGUAGE_OPTIONS = [
     'text', 'java', 'javascript', 'typescript', 'python', 'c', 'cpp', 'csharp', 'go', 'rust',
     'kotlin', 'swift', 'php', 'ruby', 'sql', 'xml', 'html', 'css', 'json', 'yaml', 'shell',
-    'powershell', 'dockerfile', 'diff', 'markdown',
+    'powershell', 'dockerfile', 'diff', 'markdown', 'mermaid', 'puml', 'plantuml',
   ];
 
   function codeLanguageSelect(language, startLine) {
@@ -377,6 +377,30 @@ MN.md = (function () {
         const pre = '<pre' + attrs(startLine, index) + '><code' + className + '>' + highlighted + '</code></pre>';
         const codeIndex = options.__codeState.next;
         options.__codeState.next += 1;
+        if (language === 'mermaid') {
+          out.push(
+            '<div class="mn-code-block mn-mermaid-block" data-code-index="' + codeIndex + '">' +
+              codeLanguageSelect('mermaid', startLine) +
+              '<div class="mn-mermaid" contenteditable="false" data-mermaid="' + escapeAttr(encodeURIComponent(code)) + '">' +
+              '<div class="mn-mermaid-loading">Mermaid</div>' +
+              '</div>' +
+              '<pre class="mn-mermaid-source"' + attrs(startLine, index) + '><code class="language-mermaid">' + escapeHtml(code) + '</code></pre>' +
+              '</div>',
+          );
+          continue;
+        }
+        if (language === 'puml' || language === 'plantuml') {
+          out.push(
+            '<div class="mn-code-block mn-puml-block" data-code-index="' + codeIndex + '">' +
+              codeLanguageSelect(language, startLine) +
+              '<div class="mn-puml" contenteditable="false" data-puml-source="' + escapeAttr(encodeURIComponent(code)) + '">' +
+              '<div class="mn-puml-loading">PlantUML</div>' +
+              '</div>' +
+              '<pre class="mn-puml-source"' + attrs(startLine, index) + '><code class="language-' + escapeAttr(language) + '">' + escapeHtml(code) + '</code></pre>' +
+              '</div>',
+          );
+          continue;
+        }
         out.push('<div class="mn-code-block" data-code-index="' + codeIndex + '">' + codeLanguageSelect(language, startLine) + pre + '</div>');
         continue;
       }

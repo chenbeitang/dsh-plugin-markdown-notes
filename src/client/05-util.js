@@ -258,3 +258,45 @@ MN.uid = function (prefix) {
   }
   return (prefix || 'mn') + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
 };
+
+/** 按需加载 Mermaid（Host 同源提供，避免依赖外网 CDN）。 */
+MN.loadMermaidLibrary = (function () {
+  let promise = null;
+  return function loadMermaidLibrary() {
+    if (window.mermaid && typeof window.mermaid.render === 'function') return Promise.resolve(window.mermaid);
+    if (promise) return promise;
+    promise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = MN.API + '/mermaid?v=' + encodeURIComponent(String(MN.version || '1'));
+      script.async = true;
+      script.onload = () => {
+        if (!window.mermaid || typeof window.mermaid.render !== 'function') {
+          reject(new Error('Mermaid 未正确加载'));
+          return;
+        }
+        try {
+          window.mermaid.initialize({
+            startOnLoad: false,
+            securityLevel: 'strict',
+            theme: 'default',
+            fontFamily: 'sans-serif',
+            flowchart: { htmlLabels: false, useMaxWidth: true },
+            class: { htmlLabels: false, useMaxWidth: true },
+            state: { htmlLabels: false, useMaxWidth: true },
+            sequence: { useMaxWidth: true },
+            gantt: { useMaxWidth: true },
+            journey: { useMaxWidth: true },
+            pie: { useMaxWidth: true },
+            er: { useMaxWidth: true },
+          });
+        } catch (error) {
+          /* 初始化参数不兼容时仍尝试使用默认配置 */
+        }
+        resolve(window.mermaid);
+      };
+      script.onerror = () => reject(new Error('无法加载 Mermaid 脚本'));
+      (document.head || document.body || document.documentElement).appendChild(script);
+    });
+    return promise;
+  };
+})();

@@ -189,6 +189,24 @@ html[data-platform="darwin"] .mn-root{padding-top:var(--dsh-frame-top-clearance,
 .mn-rich .mn-code-block[data-collapsed="true"] pre{display:none}
 .mn-rich .mn-code-block[data-collapsed="true"] .mn-code-head{border-bottom-color:transparent}
 .mn-rich .mn-code-block pre{margin:0;border:0;border-radius:0;background:transparent}
+.mn-rich .mn-mermaid-block{contain:layout paint}
+.mn-rich .mn-mermaid{display:flex;align-items:center;justify-content:center;padding:14px 12px;overflow:auto;background:var(--dsw-alias-bg-base,#fff);min-height:42px;contain:layout paint style}
+.mn-rich .mn-mermaid svg{display:block;max-width:100%;height:auto}
+.mn-rich .mn-mermaid-loading{padding:8px 4px;font-size:11px;color:var(--dsw-alias-label-secondary,#8a8a90)}
+.mn-rich .mn-mermaid-error{padding:8px 4px;font-size:12px;color:var(--dsw-alias-state-error-primary,#c62828)}
+.mn-rich .mn-mermaid-source{display:none!important}
+.mn-rich .mn-mermaid-block.mn-mermaid-failed .mn-mermaid{min-height:0;padding:8px 10px 0;background:var(--dsw-alias-bg-layer-1,#f6f6f7)}
+.mn-rich .mn-mermaid-block.mn-mermaid-failed .mn-mermaid-source{display:block!important;padding:0 12px 12px;font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;line-height:1.6;white-space:pre;overflow:auto}
+.mn-rich .mn-code-block[data-collapsed="true"] .mn-mermaid{display:none}
+.mn-rich .mn-puml-block{contain:layout paint}
+.mn-rich .mn-puml{display:flex;align-items:center;justify-content:center;padding:14px 12px;overflow:auto;background:var(--dsw-alias-bg-base,#fff);min-height:42px;contain:layout paint style}
+.mn-rich .mn-puml-img{display:block;max-width:100%;height:auto;background:#fff}
+.mn-rich .mn-puml-loading{padding:8px 4px;font-size:11px;color:var(--dsw-alias-label-secondary,#8a8a90)}
+.mn-rich .mn-puml-error{padding:8px 4px;font-size:12px;color:var(--dsw-alias-state-error-primary,#c62828)}
+.mn-rich .mn-puml-source{display:none!important}
+.mn-rich .mn-puml-block.mn-puml-failed .mn-puml{min-height:0;padding:8px 10px 0;background:var(--dsw-alias-bg-layer-1,#f6f6f7)}
+.mn-rich .mn-puml-block.mn-puml-failed .mn-puml-source{display:block!important;padding:0 12px 12px;font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;line-height:1.6;white-space:pre;overflow:auto}
+.mn-rich .mn-code-block[data-collapsed="true"] .mn-puml{display:none}
 .mn-rich pre code{background:transparent;padding:0;font-size:12.5px;white-space:pre}
 .mn-rich .tok-comment{color:var(--dsw-alias-label-secondary,#6b6b70);font-style:italic;opacity:.88}
 .mn-rich .tok-keyword{color:var(--dsw-alias-brand-primary,#2f6bff);font-weight:600}

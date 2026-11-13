@@ -1,12 +1,59 @@
 # 版本说明 · @local/markdown-notes
 
-**当前版本：1.18.2**（2026-11-13）  
+**当前版本：1.20.1**（2026-11-13）  
 **运行环境**：DeepSeek Harness Web GUI（左侧栏面板 + Host HTTP API）  
 **入口**：左侧栏「Markdown 笔记」图标（面板 id `markdown-notes`）
 
 本文件记录每个版本的定位、功能变化与已知边界；安装与使用说明见 [README.md](README.md)。
 
 ## 版本历史
+
+### 1.20.1 — 修复长 PlantUML 源码渲染失败
+
+- 根因：`puml` 源码较长时，PlantUML 服务要求压缩数据带 `~1`（DEFLATE）头；原实现缺少该头，服务把数据当成 HUFFMAN 编码并返回 “bad URL” 错误图；同时十六进制外链也容易超过 URL 长度限制。
+- 改为 Host 代理渲染：
+  - Host 用 zlib + PlantUML 专用 base64 压缩源码，并加 `~1` 头；
+  - 由 Host 请求 PlantUML 官方 SVG 服务并缓存结果；
+  - 浏览器通过 `POST /api/puml` 获取同源 SVG Blob，避免超长外链和外部服务直连。
+- PlantUML 图改为视口懒加载，只有接近视口时才请求。
+- 保留失败回退源码、折叠、双击全屏查看等行为。
+
+### 1.20.0 — PlantUML 图形渲染
+
+- 预览页支持 ` ```puml ` / ` ```plantuml ` 代码块，自动渲染为 SVG 图片。
+- 使用 PlantUML 官方服务，客户端把 UTF-8 源码做十六进制编码后请求；浏览器以 `loading="lazy"` 图片懒加载，不阻塞主线程。
+- 代码块语言下拉新增 `puml` / `plantuml`，可随时切回其它语言。
+- 源码保留在隐藏的 `pre` 中，预览 → Markdown 回写不会丢失。
+- 网络 / 服务失败时显示错误提示并回退展示 PlantUML 源码。
+- 折叠状态对 PlantUML 图同样生效；双击图片可进入全屏查看。
+- 支持中文等 UTF-8 源码；新增 PlantUML 标记与编码测试。
+
+### 1.19.2 — 进一步降低 Mermaid 渲染卡顿
+
+- 应用空闲时预加载 Mermaid 库，把 2.9MB 脚本解析从“滚动到图表时”提前到应用启动阶段。
+- Mermaid 初始化改为 SVG 文本标签（`htmlLabels: false`），减少 HTML foreignObject 布局开销。
+- Mermaid 代码块增加 CSS `contain: layout paint`，避免插入大 SVG 时触发整篇文档重排。
+- 首次进入视口仍按滚动停止 + 空闲调度渲染，不在滚动过程中执行图表布局。
+
+### 1.19.1 — Mermaid 懒渲染优化
+
+- Mermaid 库和大图渲染不再在文档打开时立即执行。
+- 仅当 Mermaid 代码块进入视口附近时才触发渲染。
+- 渲染任务排到 `requestIdleCallback` 空闲期，并等待预览滚动停止后再执行。
+- 多个 Mermaid 图按队列逐个渲染，避免同一帧集中布局。
+- 初始打开文档后的首次滚动不再被 Mermaid 加载 / 布局阻塞，图形会在滚动空闲后出现。
+
+### 1.19.0 — Mermaid 图形渲染
+
+- 预览页支持 ` ```mermaid ` 围栏代码块，自动渲染为 SVG 图形。
+- 支持流程图、时序图、类图、状态图、ER 图、甘特图、饼图等 Mermaid 11 语法。
+- Mermaid 库随插件由 Host 同源提供，按需加载，不依赖外部 CDN。
+- 代码块语言下拉新增 `mermaid`；可随时切回其它语言恢复普通代码块。
+- 图形区域不可编辑；源码仍保留在隐藏的 `pre` 中，预览 → Markdown 回写不会丢失。
+- 渲染失败时显示错误提示并回退展示 Mermaid 源码。
+- 代码块折叠状态对 Mermaid 图形同样生效。
+- Mermaid 使用 `securityLevel: strict` 初始化。
+- 内置库版本：Mermaid 11.12.3（MIT）。
 
 ### 1.18.2 — 预览编辑减少无谓转义
 
@@ -409,4 +456,4 @@ node tests/client-render.test.mjs
 node tests/client-boot.test.mjs
 ```
 
-最近一次验证（1.18.2）：全部测试通过，新增普通字符 / 强调 / 链接 / 行内 HTML 转义测试；链接 hover、外部打开、表格、图片等回归保持通过。
+最近一次验证（1.20.1）：全部测试通过；长源码经 Host 压缩代理可正常返回 SVG，浏览器端不再拼超长外链。

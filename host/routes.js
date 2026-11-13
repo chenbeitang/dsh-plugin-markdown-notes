@@ -10,6 +10,8 @@
 import { NotesError } from './storage.js';
 import { openInFileManager } from './reveal.js';
 import { openExternalUrl } from './external.js';
+import { readMermaidBundle } from './mermaid.js';
+import { renderPlantUml } from './puml.js';
 
 /** HTTP 前缀；与 Client 里写死的一致。 */
 export const ROUTE_PREFIX = '/markdown-notes';
@@ -34,6 +36,8 @@ export const API_ROUTES = Object.freeze([
   'POST /api/meta',
   'POST /api/image',
   'GET /api/media',
+  'GET /api/mermaid',
+  'POST /api/puml',
   'GET /api/search',
 ]);
 
@@ -232,6 +236,39 @@ export function createRouter(deps) {
         if (!parsed.ok) return failure(new NotesError('invalid-body', parsed.error));
         const image = await deps.store.uploadImage(parsed.value);
         return success({ image });
+      }
+
+      if (rest === '/api/mermaid') {
+        if (method !== 'GET') return failure(new NotesError('method', '不支持的请求方法'));
+        return {
+          kind: 'raw',
+          status: 200,
+          headers: {
+            'content-type': 'application/javascript; charset=utf-8',
+            'cache-control': 'public, max-age=31536000, immutable',
+          },
+          bytes: readMermaidBundle(),
+        };
+      }
+
+      if (rest === '/api/puml') {
+        if (method !== 'POST') return failure(new NotesError('method', '不支持的请求方法'));
+        const parsed = parseJsonBody(request.body);
+        if (!parsed.ok) return failure(new NotesError('invalid-body', parsed.error));
+        try {
+          const svg = await renderPlantUml(parsed.value.source, deps.logger);
+          return {
+            kind: 'raw',
+            status: 200,
+            headers: {
+              'content-type': 'image/svg+xml; charset=utf-8',
+              'cache-control': 'no-store',
+            },
+            bytes: Buffer.from(svg, 'utf8'),
+          };
+        } catch (error) {
+          return failure(new NotesError('puml-failed', error instanceof Error ? error.message : String(error)));
+        }
       }
 
       if (rest === '/api/media') {

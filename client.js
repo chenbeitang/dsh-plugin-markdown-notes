@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
     /** 本包 Client 侧唯一命名空间：各 part 只往这里挂方法/组件。 */
     const MN = {
       id: 'markdown-notes',
-      version: '1.18.2',
+      version: '1.20.1',
       React,
       h,
       useState,
@@ -297,6 +297,48 @@ MN.uid = function (prefix) {
   return (prefix || 'mn') + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
 };
 
+/** 按需加载 Mermaid（Host 同源提供，避免依赖外网 CDN）。 */
+MN.loadMermaidLibrary = (function () {
+  let promise = null;
+  return function loadMermaidLibrary() {
+    if (window.mermaid && typeof window.mermaid.render === 'function') return Promise.resolve(window.mermaid);
+    if (promise) return promise;
+    promise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = MN.API + '/mermaid?v=' + encodeURIComponent(String(MN.version || '1'));
+      script.async = true;
+      script.onload = () => {
+        if (!window.mermaid || typeof window.mermaid.render !== 'function') {
+          reject(new Error('Mermaid 未正确加载'));
+          return;
+        }
+        try {
+          window.mermaid.initialize({
+            startOnLoad: false,
+            securityLevel: 'strict',
+            theme: 'default',
+            fontFamily: 'sans-serif',
+            flowchart: { htmlLabels: false, useMaxWidth: true },
+            class: { htmlLabels: false, useMaxWidth: true },
+            state: { htmlLabels: false, useMaxWidth: true },
+            sequence: { useMaxWidth: true },
+            gantt: { useMaxWidth: true },
+            journey: { useMaxWidth: true },
+            pie: { useMaxWidth: true },
+            er: { useMaxWidth: true },
+          });
+        } catch (error) {
+          /* 初始化参数不兼容时仍尝试使用默认配置 */
+        }
+        resolve(window.mermaid);
+      };
+      script.onerror = () => reject(new Error('无法加载 Mermaid 脚本'));
+      (document.head || document.body || document.documentElement).appendChild(script);
+    });
+    return promise;
+  };
+})();
+
 /* ==================== src/client/10-markdown.js ==================== */
 /**
  * Markdown ↔ HTML 引擎（纯函数，不依赖 React / DOM，除了 htmlToMarkdown 需要 DOM 节点）。
@@ -342,7 +384,7 @@ MN.md = (function () {
   const CODE_LANGUAGE_OPTIONS = [
     'text', 'java', 'javascript', 'typescript', 'python', 'c', 'cpp', 'csharp', 'go', 'rust',
     'kotlin', 'swift', 'php', 'ruby', 'sql', 'xml', 'html', 'css', 'json', 'yaml', 'shell',
-    'powershell', 'dockerfile', 'diff', 'markdown',
+    'powershell', 'dockerfile', 'diff', 'markdown', 'mermaid', 'puml', 'plantuml',
   ];
 
   function codeLanguageSelect(language, startLine) {
@@ -677,6 +719,30 @@ MN.md = (function () {
         const pre = '<pre' + attrs(startLine, index) + '><code' + className + '>' + highlighted + '</code></pre>';
         const codeIndex = options.__codeState.next;
         options.__codeState.next += 1;
+        if (language === 'mermaid') {
+          out.push(
+            '<div class="mn-code-block mn-mermaid-block" data-code-index="' + codeIndex + '">' +
+              codeLanguageSelect('mermaid', startLine) +
+              '<div class="mn-mermaid" contenteditable="false" data-mermaid="' + escapeAttr(encodeURIComponent(code)) + '">' +
+              '<div class="mn-mermaid-loading">Mermaid</div>' +
+              '</div>' +
+              '<pre class="mn-mermaid-source"' + attrs(startLine, index) + '><code class="language-mermaid">' + escapeHtml(code) + '</code></pre>' +
+              '</div>',
+          );
+          continue;
+        }
+        if (language === 'puml' || language === 'plantuml') {
+          out.push(
+            '<div class="mn-code-block mn-puml-block" data-code-index="' + codeIndex + '">' +
+              codeLanguageSelect(language, startLine) +
+              '<div class="mn-puml" contenteditable="false" data-puml-source="' + escapeAttr(encodeURIComponent(code)) + '">' +
+              '<div class="mn-puml-loading">PlantUML</div>' +
+              '</div>' +
+              '<pre class="mn-puml-source"' + attrs(startLine, index) + '><code class="language-' + escapeAttr(language) + '">' + escapeHtml(code) + '</code></pre>' +
+              '</div>',
+          );
+          continue;
+        }
         out.push('<div class="mn-code-block" data-code-index="' + codeIndex + '">' + codeLanguageSelect(language, startLine) + pre + '</div>');
         continue;
       }
@@ -1898,6 +1964,24 @@ html[data-platform="darwin"] .mn-root{padding-top:var(--dsh-frame-top-clearance,
 .mn-rich .mn-code-block[data-collapsed="true"] pre{display:none}
 .mn-rich .mn-code-block[data-collapsed="true"] .mn-code-head{border-bottom-color:transparent}
 .mn-rich .mn-code-block pre{margin:0;border:0;border-radius:0;background:transparent}
+.mn-rich .mn-mermaid-block{contain:layout paint}
+.mn-rich .mn-mermaid{display:flex;align-items:center;justify-content:center;padding:14px 12px;overflow:auto;background:var(--dsw-alias-bg-base,#fff);min-height:42px;contain:layout paint style}
+.mn-rich .mn-mermaid svg{display:block;max-width:100%;height:auto}
+.mn-rich .mn-mermaid-loading{padding:8px 4px;font-size:11px;color:var(--dsw-alias-label-secondary,#8a8a90)}
+.mn-rich .mn-mermaid-error{padding:8px 4px;font-size:12px;color:var(--dsw-alias-state-error-primary,#c62828)}
+.mn-rich .mn-mermaid-source{display:none!important}
+.mn-rich .mn-mermaid-block.mn-mermaid-failed .mn-mermaid{min-height:0;padding:8px 10px 0;background:var(--dsw-alias-bg-layer-1,#f6f6f7)}
+.mn-rich .mn-mermaid-block.mn-mermaid-failed .mn-mermaid-source{display:block!important;padding:0 12px 12px;font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;line-height:1.6;white-space:pre;overflow:auto}
+.mn-rich .mn-code-block[data-collapsed="true"] .mn-mermaid{display:none}
+.mn-rich .mn-puml-block{contain:layout paint}
+.mn-rich .mn-puml{display:flex;align-items:center;justify-content:center;padding:14px 12px;overflow:auto;background:var(--dsw-alias-bg-base,#fff);min-height:42px;contain:layout paint style}
+.mn-rich .mn-puml-img{display:block;max-width:100%;height:auto;background:#fff}
+.mn-rich .mn-puml-loading{padding:8px 4px;font-size:11px;color:var(--dsw-alias-label-secondary,#8a8a90)}
+.mn-rich .mn-puml-error{padding:8px 4px;font-size:12px;color:var(--dsw-alias-state-error-primary,#c62828)}
+.mn-rich .mn-puml-source{display:none!important}
+.mn-rich .mn-puml-block.mn-puml-failed .mn-puml{min-height:0;padding:8px 10px 0;background:var(--dsw-alias-bg-layer-1,#f6f6f7)}
+.mn-rich .mn-puml-block.mn-puml-failed .mn-puml-source{display:block!important;padding:0 12px 12px;font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;line-height:1.6;white-space:pre;overflow:auto}
+.mn-rich .mn-code-block[data-collapsed="true"] .mn-puml{display:none}
 .mn-rich pre code{background:transparent;padding:0;font-size:12.5px;white-space:pre}
 .mn-rich .tok-comment{color:var(--dsw-alias-label-secondary,#6b6b70);font-style:italic;opacity:.88}
 .mn-rich .tok-keyword{color:var(--dsw-alias-brand-primary,#2f6bff);font-weight:600}
@@ -4585,6 +4669,7 @@ MN.RichEditor = function RichEditor(props) {
   const [imageViewer, setImageViewer] = useState(null);
   const [linkHover, setLinkHover] = useState(null);
   const linkHoverTimerRef = useRef(0);
+  const mermaidTokenRef = useRef(0);
   const selectionFrameRef = useRef(0);
   const selectionToolbarSuppressRef = useRef(0);
   const slashBlockRef = useRef(null);
@@ -4673,7 +4758,7 @@ MN.RichEditor = function RichEditor(props) {
       }
       const startElement = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
       const endElement = range.endContainer.nodeType === 1 ? range.endContainer : range.endContainer.parentElement;
-      const forbidden = 'pre, code, table, .mn-code-block, .mn-table-wrap, select, input';
+      const forbidden = 'pre, code, table, .mn-code-block, .mn-mermaid-block, .mn-mermaid, .mn-puml-block, .mn-puml, .mn-table-wrap, select, input';
       if (
         (startElement && startElement.closest(forbidden)) ||
         (endElement && endElement.closest(forbidden))
@@ -5048,6 +5133,299 @@ MN.RichEditor = function RichEditor(props) {
     applyCodeCollapseStates(elementRef.current, collapsedCodeRef.current);
   }, [seedHtml]);
 
+  // Mermaid 代码块懒渲染：只在接近视口时加载库 / 渲染，且避开滚动。
+  useEffect(() => {
+    const editor = elementRef.current;
+    if (!editor || typeof editor.querySelectorAll !== 'function') return undefined;
+    const hosts = Array.from(editor.querySelectorAll('.mn-mermaid[data-mermaid]'));
+    if (hosts.length === 0) return undefined;
+    const token = mermaidTokenRef.current + 1;
+    mermaidTokenRef.current = token;
+    let cancelled = false;
+    let loaded = null;
+    let loading = false;
+    let rendering = false;
+    let observer = null;
+    let idleHandle = 0;
+    let quietTimer = 0;
+    let initialTimer = 0;
+    let lastScrollAt = Date.now();
+    const pending = new Set();
+    const queue = [];
+    const queued = new Set();
+
+    const clearIdle = () => {
+      if (idleHandle === 0) return;
+      if (typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(idleHandle);
+      else window.clearTimeout(idleHandle);
+      idleHandle = 0;
+    };
+    const scheduleIdle = (fn, timeout) => {
+      if (cancelled) return;
+      if (typeof window.requestIdleCallback === 'function') {
+        idleHandle = window.requestIdleCallback(
+          () => {
+            idleHandle = 0;
+            if (!cancelled) fn();
+          },
+          { timeout: timeout || 1800 },
+        );
+      } else {
+        idleHandle = window.setTimeout(() => {
+          idleHandle = 0;
+          if (!cancelled) fn();
+        }, 90);
+      }
+    };
+    const afterQuiet = (fn, extraDelay) => {
+      if (cancelled) return;
+      window.clearTimeout(quietTimer);
+      const wait = Math.max(0, lastScrollAt + 320 - Date.now()) + (extraDelay || 0);
+      if (wait > 0) {
+        quietTimer = window.setTimeout(() => afterQuiet(fn, 0), wait);
+        return;
+      }
+      scheduleIdle(fn);
+    };
+    const markScroll = () => {
+      lastScrollAt = Date.now();
+    };
+    editor.addEventListener('scroll', markScroll, { passive: true });
+    window.addEventListener('scroll', markScroll, true);
+
+    const markFailed = (host, message) => {
+      if (!host || !host.isConnected) return;
+      host.innerHTML = '<div class="mn-mermaid-error">' + message + '</div>';
+      host.setAttribute('data-rendered', 'failed');
+      const block = host.closest ? host.closest('.mn-code-block') : null;
+      if (block) block.classList.add('mn-mermaid-failed');
+    };
+
+    const renderHost = (host) =>
+      new Promise((resolve) => {
+        if (cancelled || !host.isConnected || host.getAttribute('data-rendered')) {
+          resolve();
+          return;
+        }
+        let source = '';
+        try {
+          source = decodeURIComponent(host.getAttribute('data-mermaid') || '');
+        } catch (error) {
+          source = '';
+        }
+        if (source.trim() === '') {
+          markFailed(host, 'Mermaid 源码为空');
+          resolve();
+          return;
+        }
+        const id = 'mn-mermaid-' + token + '-' + (host.getAttribute('data-code-index') || Date.now());
+        Promise.resolve(loaded.render(id, source))
+          .then((result) => {
+            if (cancelled || mermaidTokenRef.current !== token || !host.isConnected) {
+              resolve();
+              return;
+            }
+            host.innerHTML = result && result.svg ? result.svg : '';
+            host.setAttribute('data-rendered', 'true');
+            const block = host.closest ? host.closest('.mn-code-block') : null;
+            if (block) block.classList.add('mn-mermaid-rendered');
+            resolve();
+          })
+          .catch((error) => {
+            console.warn('[markdown-notes] Mermaid 渲染失败', error);
+            if (cancelled || mermaidTokenRef.current !== token) {
+              resolve();
+              return;
+            }
+            markFailed(host, 'Mermaid 源码解析失败');
+            resolve();
+          });
+      });
+
+    const pump = () => {
+      if (cancelled || rendering) return;
+      const host = queue.shift();
+      if (!host) return;
+      queued.delete(host);
+      if (!host.isConnected || host.getAttribute('data-rendered')) {
+        pump();
+        return;
+      }
+      rendering = true;
+      renderHost(host).finally(() => {
+        rendering = false;
+        if (queue.length > 0) afterQuiet(pump, 0);
+      });
+    };
+
+    const enqueue = (host) => {
+      if (cancelled || !host || !host.isConnected || host.getAttribute('data-rendered') || queued.has(host)) return;
+      queued.add(host);
+      queue.push(host);
+      afterQuiet(pump, 0);
+    };
+
+    const flushPending = () => {
+      const visible = Array.from(pending);
+      pending.clear();
+      for (const host of visible) enqueue(host);
+    };
+
+    const ensureLoaded = () => {
+      if (loaded) {
+        flushPending();
+        return;
+      }
+      if (loading || cancelled) return;
+      loading = true;
+      // 初始文档打开时先让首帧 / 首次滚动稳定，再在空闲时加载 2.9 MB 的 Mermaid。
+      afterQuiet(() => {
+        if (cancelled || loaded) return;
+        MN.loadMermaidLibrary()
+          .then((mermaid) => {
+            if (cancelled || mermaidTokenRef.current !== token) return;
+            loaded = mermaid;
+            flushPending();
+          })
+          .catch((error) => {
+            console.warn('[markdown-notes] Mermaid 加载失败', error);
+            if (cancelled || mermaidTokenRef.current !== token) return;
+            for (const host of hosts) markFailed(host, 'Mermaid 加载失败');
+          });
+      }, 900);
+    };
+
+    if (typeof IntersectionObserver === 'function') {
+      observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const host = entry.target;
+            host.setAttribute('data-mermaid-seen', 'true');
+            ensureLoaded();
+            if (loaded) enqueue(host);
+            else pending.add(host);
+          }
+        },
+        { root: editor, rootMargin: '240px 0px' },
+      );
+      for (const host of hosts) observer.observe(host);
+    } else {
+      // 极老环境没有 IntersectionObserver：退化为延迟渲染全部。
+      for (const host of hosts) pending.add(host);
+      initialTimer = window.setTimeout(ensureLoaded, 900);
+    }
+
+    return () => {
+      cancelled = true;
+      observer?.disconnect?.();
+      editor.removeEventListener('scroll', markScroll);
+      window.removeEventListener('scroll', markScroll, true);
+      clearIdle();
+      window.clearTimeout(quietTimer);
+      window.clearTimeout(initialTimer);
+    };
+  }, [seedHtml]);
+
+  // PlantUML 通过 Host 代理渲染，浏览器只接收同源 SVG；长源码不会拼成超长外链。
+  useEffect(() => {
+    const editor = elementRef.current;
+    if (!editor || typeof editor.querySelectorAll !== 'function') return undefined;
+    const hosts = Array.from(editor.querySelectorAll('.mn-puml[data-puml-source]'));
+    if (hosts.length === 0) return undefined;
+    const controller = new AbortController();
+    const objectUrls = [];
+    let observer = null;
+
+    const markFailed = (host, message) => {
+      if (!host || !host.isConnected) return;
+      host.innerHTML = '<div class="mn-puml-error">' + message + '</div>';
+      host.setAttribute('data-rendered', 'failed');
+      const block = host.closest ? host.closest('.mn-code-block') : null;
+      if (block) block.classList.add('mn-puml-failed');
+    };
+
+    const loadHost = async (host) => {
+      if (!host || host.getAttribute('data-rendered')) return;
+      host.setAttribute('data-rendered', 'loading');
+      let source = '';
+      try {
+        source = decodeURIComponent(host.getAttribute('data-puml-source') || '');
+      } catch (error) {
+        source = '';
+      }
+      if (source.trim() === '') {
+        markFailed(host, 'PlantUML 源码为空');
+        return;
+      }
+      try {
+        const response = await fetch(MN.API + '/puml', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json', accept: 'image/svg+xml' },
+          body: JSON.stringify({ source }),
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          let message = 'PlantUML 渲染失败';
+          try {
+            const data = await response.json();
+            if (data && data.error) message = data.error;
+          } catch (error) {
+            /* 保留默认错误 */
+          }
+          throw new Error(message);
+        }
+        const blob = await response.blob();
+        if (controller.signal.aborted || !host.isConnected) return;
+        const url = URL.createObjectURL(blob);
+        objectUrls.push(url);
+        const image = document.createElement('img');
+        image.className = 'mn-puml-img';
+        image.alt = 'PlantUML';
+        image.decoding = 'async';
+        image.addEventListener('error', () => {
+          if (!host.isConnected) return;
+          markFailed(host, 'PlantUML 图片加载失败，已回退为源码');
+        });
+        image.src = url;
+        host.replaceChildren(image);
+        host.setAttribute('data-rendered', 'true');
+        const block = host.closest ? host.closest('.mn-code-block') : null;
+        if (block) block.classList.add('mn-puml-rendered');
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        console.warn('[markdown-notes] PlantUML 渲染失败', error);
+        markFailed(host, 'PlantUML 渲染失败，已回退为源码');
+      }
+    };
+
+    if (typeof IntersectionObserver === 'function') {
+      observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              observer.unobserve(entry.target);
+              void loadHost(entry.target);
+            }
+          }
+        },
+        { root: editor, rootMargin: '240px 0px' },
+      );
+      for (const host of hosts) {
+        if (!host.getAttribute('data-rendered')) observer.observe(host);
+      }
+    } else {
+      for (const host of hosts) void loadHost(host);
+    }
+
+    return () => {
+      controller.abort();
+      observer?.disconnect?.();
+      for (const url of objectUrls) URL.revokeObjectURL(url);
+    };
+  }, [seedHtml]);
+
   // 外部重渲染后，选中的图片可能已被替换：重新对齐或清除选择。
   useEffect(() => {
     if (imageOverlay !== null) syncImageOverlay();
@@ -5291,6 +5669,7 @@ MN.RichEditor = function RichEditor(props) {
   /** 点击图片：选中并显示八向缩放把手；点击其它位置取消选择。 */
   const handleEditorMouseDown = (event) => {
     const target = event.target;
+    if (target && target.tagName === 'IMG' && target.closest && target.closest('.mn-puml')) return;
     if (target && target.tagName === 'IMG') {
       event.preventDefault();
       if (selectedImageRef.current && selectedImageRef.current !== target && selectedImageRef.current.classList) {
@@ -6019,6 +6398,27 @@ MN.AppPage = function AppPage(props) {
   const allNotes = useMemo(() => MN.collectNotes(state.tree), [state.tree]);
   const filteredTree = useMemo(() => MN.filterTree(state.tree, query), [state.tree, query]);
   const activeFavorite = note ? favoriteSet.has(note.path) : false;
+
+  // 应用空闲时预加载 Mermaid；只加载库、不渲染图表，避免打开文档后滚动到图表才解析大脚本。
+  useEffect(() => {
+    if (typeof MN.loadMermaidLibrary !== 'function') return undefined;
+    let idleId = 0;
+    let timer = 0;
+    const start = () => {
+      timer = window.setTimeout(() => {
+        MN.loadMermaidLibrary().catch(() => {});
+      }, 600);
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+      idleId = window.requestIdleCallback(start, { timeout: 2500 });
+    } else {
+      timer = window.setTimeout(start, 1200);
+    }
+    return () => {
+      if (idleId !== 0 && typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(idleId);
+      window.clearTimeout(timer);
+    };
+  }, []);
 
   const showToast = useCallback((message, kind) => {
     if (!mountedRef.current) return;

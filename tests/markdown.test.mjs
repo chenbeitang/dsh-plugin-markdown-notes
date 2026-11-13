@@ -189,6 +189,26 @@ check('htmlToMarkdown only escapes actual markdown constructs', () => {
   assert.equal(toMd('```'), '\\```');
 });
 
+check('mermaid fence renders a diagram container with source fallback', () => {
+  const html = render('```mermaid\ngraph TD\nA-->B\n```');
+  assert.match(html, /class="mn-code-block mn-mermaid-block"/);
+  assert.match(html, /class="mn-mermaid"/);
+  assert.match(html, /data-mermaid="/);
+  assert.match(html, /class="mn-mermaid-source"/);
+  assert.match(html, /language-mermaid/);
+  assert.match(html, /<option value="mermaid" selected>mermaid<\/option>/);
+});
+
+check('puml fence renders an image container with source fallback', () => {
+  const html = render('```puml\n@startuml\nAlice -> Bob: hi\n@enduml\n```');
+  assert.match(html, /class="mn-code-block mn-puml-block"/);
+  assert.match(html, /class="mn-puml"/);
+  assert.match(html, /data-puml-source="/);
+  assert.match(html, /class="mn-puml-source"/);
+  assert.match(html, /language-puml/);
+  assert.match(html, /<option value="puml" selected>puml<\/option>/);
+});
+
 check('links and images', () => {
   const html = render('[site](https://example.com?a=1&b=2) ![shot](assets/a.png)', {
     mediaUrl: (rel) => '/markdown-notes/api/media?path=' + encodeURIComponent(rel),
