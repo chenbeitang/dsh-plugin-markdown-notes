@@ -17,7 +17,7 @@ window.__ModuleLoader__.load({
     /** 本包 Client 侧唯一命名空间：各 part 只往这里挂方法/组件。 */
     const MN = {
       id: 'markdown-notes',
-      version: '1.17.0',
+      version: '1.18.1',
       React,
       h,
       useState,

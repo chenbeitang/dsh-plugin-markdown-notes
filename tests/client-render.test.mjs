@@ -557,6 +557,36 @@ check('image viewer scales and keeps the pointer anchor', () => {
   assert.ok(hasClass(viewer, 'mn-image-viewer'));
 });
 
+check('link hover toolbar renders the browser action', () => {
+  const env = makeEnv();
+  env.reset([]);
+  assert.equal(env.MN.resolveExternalBrowserHref('https://example.com/a?b=1'), 'https://example.com/a?b=1');
+  assert.equal(env.MN.resolveExternalBrowserHref('javascript:alert(1)'), null);
+  env.reset([
+    '<p><a href="https://example.com/">link</a></p>',
+    null,
+    null,
+    null,
+    null,
+    null,
+    { left: 10, top: 10, url: 'https://example.com/' },
+  ]);
+  const root = deepRender(
+    env,
+    env.MN.RichEditor({
+      markdown: '[link](https://example.com/)',
+      onChange() {},
+      onFocus() {},
+      uploadImage: async () => null,
+      apiRef: { current: null },
+    }),
+  );
+  assert.ok(hasClass(root, 'mn-link-toolbar'));
+  const text = [];
+  collectText(root, text);
+  assert.ok(text.join(' ').includes('link.openInBrowser'));
+});
+
 check('source selection applies markdown formatting wrappers', () => {
   const env = makeEnv();
   env.reset([]);

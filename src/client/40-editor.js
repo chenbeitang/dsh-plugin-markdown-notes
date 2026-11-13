@@ -1800,6 +1800,33 @@ MN.loadCollapsedCodeBlocks = loadCollapsedCodeBlocks;
 MN.saveCollapsedCodeBlocks = saveCollapsedCodeBlocks;
 MN.applyCodeCollapseStates = applyCodeCollapseStates;
 
+/** 校验并可解析为系统浏览器可打开的 http / https / mailto 链接。 */
+function resolveExternalBrowserHref(value) {
+  try {
+    const base = (window.location && window.location.href) || 'http://localhost/';
+    const url = new URL(String(value || ''), base);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:' && url.protocol !== 'mailto:') return null;
+    return url.href;
+  } catch (error) {
+    return null;
+  }
+}
+
+/** 调用 Host 打开系统浏览器；失败时回退到当前窗口的新标签页。 */
+function openExternalInBrowser(value) {
+  const url = resolveExternalBrowserHref(value);
+  if (!url) return;
+  void MN.api.post('open-external', { url }).catch(() => {
+    try {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      /* 打开失败不阻塞编辑器 */
+    }
+  });
+}
+
+MN.resolveExternalBrowserHref = resolveExternalBrowserHref;
+
 MN.RichEditor = function RichEditor(props) {
   const elementRef = useRef(null);
   const lastEmittedRef = useRef(typeof props.markdown === 'string' ? props.markdown : '');
@@ -1818,6 +1845,8 @@ MN.RichEditor = function RichEditor(props) {
   const [tableMenu, setTableMenu] = useState(null);
   const [selectionToolbar, setSelectionToolbar] = useState(null);
   const [imageViewer, setImageViewer] = useState(null);
+  const [linkHover, setLinkHover] = useState(null);
+  const linkHoverTimerRef = useRef(0);
   const selectionFrameRef = useRef(0);
   const selectionToolbarSuppressRef = useRef(0);
   const slashBlockRef = useRef(null);
@@ -2048,6 +2077,16 @@ MN.RichEditor = function RichEditor(props) {
     const onToggleCode = (event) => {
       const target = event.target;
       if (!target || typeof target.closest !== 'function') return;
+      const anchor = target.closest('a[href]');
+      if (anchor && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        event.stopPropagation();
+        const rawHref = anchor.href || anchor.getAttribute('href') || '';
+        const url = resolveExternalBrowserHref(rawHref);
+        if (!url) return;
+        openExternalInBrowser(url);
+        return;
+      }
       const toggle = target.closest('.mn-code-toggle');
       if (!toggle) {
         const cell = target.closest('td,th');
@@ -2554,7 +2593,65 @@ MN.RichEditor = function RichEditor(props) {
     setImageViewer({ src, alt: target.alt || '' });
   };
 
-  /** 从某个把手开始拖拽；等比缩放，只把 width 写回 Markdown。 */
+  const cancelLinkHoverHide = () => {
+    if (linkHoverTimerRef.current !== 0) {
+      window.clearTimeout(linkHoverTimerRef.current);
+      linkHoverTimerRef.current = 0;
+    }
+  };
+
+  const hideLinkHoverNow = () => {
+    cancelLinkHoverHide();
+    setLinkHover(null);
+  };
+
+  const scheduleLinkHoverHide = () => {
+    cancelLinkHoverHide();
+    linkHoverTimerRef.current = window.setTimeout(() => {
+      linkHoverTimerRef.current = 0;
+      setLinkHover(null);
+    }, 140);
+  };
+
+  const handleLinkMouseOver = (event) => {
+    const target = event.target;
+    if (!target || typeof target.closest !== 'function') return;
+    const anchor = target.closest('a[href]');
+    if (!anchor) {
+      scheduleLinkHoverHide();
+      return;
+    }
+    const url = resolveExternalBrowserHref(anchor.href || anchor.getAttribute('href'));
+    if (!url) {
+      scheduleLinkHoverHide();
+      return;
+    }
+    cancelLinkHoverHide();
+    const rect = anchor.getBoundingClientRect();
+    const width = 168;
+    const height = 34;
+    const viewportWidth = window.innerWidth || 1024;
+    const viewportHeight = window.innerHeight || 768;
+    const left = Math.max(8, Math.min(rect.left + rect.width / 2 - width / 2, viewportWidth - width - 8));
+    let top = rect.top - height - 8;
+    if (top < 8) top = Math.min(viewportHeight - height - 8, rect.bottom + 8);
+    setLinkHover((previous) =>
+      previous && previous.url === url && Math.abs(previous.left - left) < 1 && Math.abs(previous.top - top) < 1
+        ? previous
+        : { left, top, url },
+    );
+  };
+
+  const handleLinkMouseOut = (event) => {
+    const target = event.target;
+    if (target && typeof target.closest === 'function') {
+      const anchor = target.closest('a[href]');
+      if (anchor && event.relatedTarget && anchor.contains(event.relatedTarget)) return;
+    }
+    scheduleLinkHoverHide();
+  };
+
+
   const startImageResize = (event, direction) => {
     const image = selectedImageRef.current;
     const editor = elementRef.current;
@@ -2687,6 +2784,40 @@ MN.RichEditor = function RichEditor(props) {
       })
     : null;
 
+  const linkHoverElement = linkHover
+    ? h(
+        'div',
+        {
+          className: 'mn-link-toolbar',
+          style: { left: linkHover.left + 'px', top: linkHover.top + 'px' },
+          onMouseEnter: cancelLinkHoverHide,
+          onMouseLeave: scheduleLinkHoverHide,
+          onMouseDown: (event) => event.stopPropagation(),
+        },
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'mn-link-open',
+            title: MN.t('link.openInBrowser'),
+            'aria-label': MN.t('link.openInBrowser'),
+            onMouseDown: (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            },
+            onClick: (event) => {
+              event.preventDefault();
+              const url = linkHover.url;
+              hideLinkHoverNow();
+              openExternalInBrowser(url);
+            },
+          },
+          h(MN.Icon, { name: 'link', size: 13 }),
+          h('span', null, MN.t('link.openInBrowser')),
+        ),
+      )
+    : null;
+
   return h(
     'div',
     { className: 'mn-editor-wrap' },
@@ -2716,12 +2847,16 @@ MN.RichEditor = function RichEditor(props) {
         onBlur: (event) => {
           closeSlashMenu();
           hideSelectionToolbar();
+          hideLinkHoverNow();
           if (props.onBlur) props.onBlur(event);
         },
         onScroll: (event) => {
           closeSlashMenu();
+          hideLinkHoverNow();
           if (props.onScroll) props.onScroll(event);
         },
+        onMouseOver: handleLinkMouseOver,
+        onMouseOut: handleLinkMouseOut,
         onKeyUp: () => {
           if (props.onCaretChange) props.onCaretChange();
         },
@@ -2730,6 +2865,7 @@ MN.RichEditor = function RichEditor(props) {
         },
         onMouseDown: (event) => {
           closeSlashMenu();
+          hideLinkHoverNow();
           handleEditorMouseDown(event);
         },
         onDoubleClick: handleEditorDoubleClick,
@@ -2763,6 +2899,7 @@ MN.RichEditor = function RichEditor(props) {
     tableMenuElement,
     imageOverlayElement,
     imageViewerElement,
+    linkHoverElement,
   );
 };
 

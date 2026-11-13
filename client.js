@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
     /** 本包 Client 侧唯一命名空间：各 part 只往这里挂方法/组件。 */
     const MN = {
       id: 'markdown-notes',
-      version: '1.17.0',
+      version: '1.18.1',
       React,
       h,
       useState,
@@ -1811,6 +1811,12 @@ html[data-platform="darwin"] .mn-root{padding-top:var(--dsh-frame-top-clearance,
 .mn-selection-label{font-size:11px}
 .mn-selection-icon{display:inline-flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-secondary,#8a8a90)}
 .mn-selection-btn:hover .mn-selection-icon{color:var(--dsw-alias-brand-primary,#2f6bff)}
+.mn-link-toolbar{position:fixed;z-index:69;height:34px;display:flex;align-items:center;padding:3px;background:var(--dsw-alias-bg-overlay,#fff);border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.14));border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18),0 1px 4px rgba(0,0,0,.08)}
+.mn-link-open{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-primary,#1d1d1f);font:inherit;font-size:11.5px;line-height:1;white-space:nowrap;cursor:pointer;outline:none}
+.mn-link-open:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 10%,transparent);color:var(--dsw-alias-brand-primary,#2f6bff)}
+.mn-link-open:focus-visible{box-shadow:inset 0 0 0 1px var(--dsw-alias-brand-primary,#2f6bff)}
+.mn-link-open .mn-icon{color:var(--dsw-alias-label-secondary,#8a8a90)}
+.mn-link-open:hover .mn-icon{color:var(--dsw-alias-brand-primary,#2f6bff)}
 .mn-pane-label{flex:none;height:24px;display:flex;align-items:center;gap:6px;padding:0 16px;font-size:10.5px;font-weight:600;letter-spacing:.6px;text-transform:uppercase;color:var(--dsw-alias-label-secondary,#8a8a90);background:var(--dsw-alias-bg-base,#fff);border-bottom:1px solid color-mix(in srgb,var(--dsw-alias-border-l1,rgba(0,0,0,.07)) 60%,transparent)}
 .mn-pane-label .mn-dot{width:5px;height:5px;border-radius:50%;background:var(--dsw-alias-state-success-primary,#2e7d32);opacity:.75}
 .mn-source{flex:1 1 auto;min-height:0;display:flex;position:relative}
@@ -1841,8 +1847,9 @@ html[data-platform="darwin"] .mn-root{padding-top:var(--dsh-frame-top-clearance,
 .mn-rich h4{font-size:1.06em}
 .mn-rich h5,.mn-rich h6{font-size:1em;color:var(--dsw-alias-label-secondary,#55555a)}
 .mn-rich p{margin:.62em 0}
-.mn-rich a{color:var(--dsw-alias-brand-primary,#2f6bff);text-decoration:none}
-.mn-rich a:hover{text-decoration:underline}
+.mn-rich a{color:var(--dsw-alias-brand-primary,#2f6bff);font-weight:500;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px;text-decoration-skip-ink:auto;text-decoration-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 58%,transparent);cursor:pointer;border-radius:3px;transition:color .12s ease,background-color .12s ease,text-decoration-color .12s ease}
+.mn-rich a:hover{color:var(--dsw-alias-brand-hover,#1f55d8);background:color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 10%,transparent);text-decoration-color:currentColor}
+.mn-rich a:focus-visible{outline:2px solid color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 45%,transparent);outline-offset:1px}
 .mn-rich strong{font-weight:650}
 .mn-rich ul,.mn-rich ol{margin:.5em 0;padding-left:1.55em}
 .mn-rich li{margin:.18em 0}
@@ -4507,6 +4514,33 @@ MN.loadCollapsedCodeBlocks = loadCollapsedCodeBlocks;
 MN.saveCollapsedCodeBlocks = saveCollapsedCodeBlocks;
 MN.applyCodeCollapseStates = applyCodeCollapseStates;
 
+/** 校验并可解析为系统浏览器可打开的 http / https / mailto 链接。 */
+function resolveExternalBrowserHref(value) {
+  try {
+    const base = (window.location && window.location.href) || 'http://localhost/';
+    const url = new URL(String(value || ''), base);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:' && url.protocol !== 'mailto:') return null;
+    return url.href;
+  } catch (error) {
+    return null;
+  }
+}
+
+/** 调用 Host 打开系统浏览器；失败时回退到当前窗口的新标签页。 */
+function openExternalInBrowser(value) {
+  const url = resolveExternalBrowserHref(value);
+  if (!url) return;
+  void MN.api.post('open-external', { url }).catch(() => {
+    try {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      /* 打开失败不阻塞编辑器 */
+    }
+  });
+}
+
+MN.resolveExternalBrowserHref = resolveExternalBrowserHref;
+
 MN.RichEditor = function RichEditor(props) {
   const elementRef = useRef(null);
   const lastEmittedRef = useRef(typeof props.markdown === 'string' ? props.markdown : '');
@@ -4525,6 +4559,8 @@ MN.RichEditor = function RichEditor(props) {
   const [tableMenu, setTableMenu] = useState(null);
   const [selectionToolbar, setSelectionToolbar] = useState(null);
   const [imageViewer, setImageViewer] = useState(null);
+  const [linkHover, setLinkHover] = useState(null);
+  const linkHoverTimerRef = useRef(0);
   const selectionFrameRef = useRef(0);
   const selectionToolbarSuppressRef = useRef(0);
   const slashBlockRef = useRef(null);
@@ -4755,6 +4791,16 @@ MN.RichEditor = function RichEditor(props) {
     const onToggleCode = (event) => {
       const target = event.target;
       if (!target || typeof target.closest !== 'function') return;
+      const anchor = target.closest('a[href]');
+      if (anchor && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        event.stopPropagation();
+        const rawHref = anchor.href || anchor.getAttribute('href') || '';
+        const url = resolveExternalBrowserHref(rawHref);
+        if (!url) return;
+        openExternalInBrowser(url);
+        return;
+      }
       const toggle = target.closest('.mn-code-toggle');
       if (!toggle) {
         const cell = target.closest('td,th');
@@ -5261,7 +5307,65 @@ MN.RichEditor = function RichEditor(props) {
     setImageViewer({ src, alt: target.alt || '' });
   };
 
-  /** 从某个把手开始拖拽；等比缩放，只把 width 写回 Markdown。 */
+  const cancelLinkHoverHide = () => {
+    if (linkHoverTimerRef.current !== 0) {
+      window.clearTimeout(linkHoverTimerRef.current);
+      linkHoverTimerRef.current = 0;
+    }
+  };
+
+  const hideLinkHoverNow = () => {
+    cancelLinkHoverHide();
+    setLinkHover(null);
+  };
+
+  const scheduleLinkHoverHide = () => {
+    cancelLinkHoverHide();
+    linkHoverTimerRef.current = window.setTimeout(() => {
+      linkHoverTimerRef.current = 0;
+      setLinkHover(null);
+    }, 140);
+  };
+
+  const handleLinkMouseOver = (event) => {
+    const target = event.target;
+    if (!target || typeof target.closest !== 'function') return;
+    const anchor = target.closest('a[href]');
+    if (!anchor) {
+      scheduleLinkHoverHide();
+      return;
+    }
+    const url = resolveExternalBrowserHref(anchor.href || anchor.getAttribute('href'));
+    if (!url) {
+      scheduleLinkHoverHide();
+      return;
+    }
+    cancelLinkHoverHide();
+    const rect = anchor.getBoundingClientRect();
+    const width = 168;
+    const height = 34;
+    const viewportWidth = window.innerWidth || 1024;
+    const viewportHeight = window.innerHeight || 768;
+    const left = Math.max(8, Math.min(rect.left + rect.width / 2 - width / 2, viewportWidth - width - 8));
+    let top = rect.top - height - 8;
+    if (top < 8) top = Math.min(viewportHeight - height - 8, rect.bottom + 8);
+    setLinkHover((previous) =>
+      previous && previous.url === url && Math.abs(previous.left - left) < 1 && Math.abs(previous.top - top) < 1
+        ? previous
+        : { left, top, url },
+    );
+  };
+
+  const handleLinkMouseOut = (event) => {
+    const target = event.target;
+    if (target && typeof target.closest === 'function') {
+      const anchor = target.closest('a[href]');
+      if (anchor && event.relatedTarget && anchor.contains(event.relatedTarget)) return;
+    }
+    scheduleLinkHoverHide();
+  };
+
+
   const startImageResize = (event, direction) => {
     const image = selectedImageRef.current;
     const editor = elementRef.current;
@@ -5394,6 +5498,40 @@ MN.RichEditor = function RichEditor(props) {
       })
     : null;
 
+  const linkHoverElement = linkHover
+    ? h(
+        'div',
+        {
+          className: 'mn-link-toolbar',
+          style: { left: linkHover.left + 'px', top: linkHover.top + 'px' },
+          onMouseEnter: cancelLinkHoverHide,
+          onMouseLeave: scheduleLinkHoverHide,
+          onMouseDown: (event) => event.stopPropagation(),
+        },
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'mn-link-open',
+            title: MN.t('link.openInBrowser'),
+            'aria-label': MN.t('link.openInBrowser'),
+            onMouseDown: (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            },
+            onClick: (event) => {
+              event.preventDefault();
+              const url = linkHover.url;
+              hideLinkHoverNow();
+              openExternalInBrowser(url);
+            },
+          },
+          h(MN.Icon, { name: 'link', size: 13 }),
+          h('span', null, MN.t('link.openInBrowser')),
+        ),
+      )
+    : null;
+
   return h(
     'div',
     { className: 'mn-editor-wrap' },
@@ -5423,12 +5561,16 @@ MN.RichEditor = function RichEditor(props) {
         onBlur: (event) => {
           closeSlashMenu();
           hideSelectionToolbar();
+          hideLinkHoverNow();
           if (props.onBlur) props.onBlur(event);
         },
         onScroll: (event) => {
           closeSlashMenu();
+          hideLinkHoverNow();
           if (props.onScroll) props.onScroll(event);
         },
+        onMouseOver: handleLinkMouseOver,
+        onMouseOut: handleLinkMouseOut,
         onKeyUp: () => {
           if (props.onCaretChange) props.onCaretChange();
         },
@@ -5437,6 +5579,7 @@ MN.RichEditor = function RichEditor(props) {
         },
         onMouseDown: (event) => {
           closeSlashMenu();
+          hideLinkHoverNow();
           handleEditorMouseDown(event);
         },
         onDoubleClick: handleEditorDoubleClick,
@@ -5470,6 +5613,7 @@ MN.RichEditor = function RichEditor(props) {
     tableMenuElement,
     imageOverlayElement,
     imageViewerElement,
+    linkHoverElement,
   );
 };
 
@@ -7948,6 +8092,7 @@ MN.DICTIONARIES = {
     'imageViewer.actual': '原始尺寸 1:1',
     'imageViewer.close': '关闭图片预览',
     'imageViewer.error': '图片加载失败',
+    'link.openInBrowser': '从浏览器中打开',
     'tree.favorites': '收藏',
     'tree.allNotes': '全部笔记',
     'tree.newNoteHere': '在此新建笔记',
@@ -8126,6 +8271,7 @@ MN.DICTIONARIES = {
     'imageViewer.actual': 'Actual size 1:1',
     'imageViewer.close': 'Close image preview',
     'imageViewer.error': 'Failed to load image',
+    'link.openInBrowser': 'Open in browser',
     'tree.favorites': 'Favorites',
     'tree.allNotes': 'All notes',
     'tree.newNoteHere': 'New note here',

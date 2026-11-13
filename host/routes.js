@@ -9,6 +9,7 @@
  */
 import { NotesError } from './storage.js';
 import { openInFileManager } from './reveal.js';
+import { openExternalUrl } from './external.js';
 
 /** HTTP 前缀；与 Client 里写死的一致。 */
 export const ROUTE_PREFIX = '/markdown-notes';
@@ -28,6 +29,7 @@ export const API_ROUTES = Object.freeze([
   'POST /api/entry/move',
   'POST /api/entry/reorder',
   'POST /api/entry/reveal',
+  'POST /api/open-external',
   'POST /api/favorite',
   'POST /api/meta',
   'POST /api/image',
@@ -192,6 +194,17 @@ export function createRouter(deps) {
           directory: location.isDirectory,
           revealed: true,
         });
+      }
+
+      if (rest === '/api/open-external') {
+        if (method !== 'POST') return failure(new NotesError('method', '不支持的请求方法'));
+        const parsed = parseJsonBody(request.body);
+        if (!parsed.ok) return failure(new NotesError('invalid-body', parsed.error));
+        const opened = openExternalUrl(parsed.value.url, deps.logger);
+        if (!opened.ok) {
+          return failure(new NotesError('open-failed', opened.error || '无法打开外部链接'));
+        }
+        return success({ opened: true });
       }
 
       if (rest === '/api/favorite') {
