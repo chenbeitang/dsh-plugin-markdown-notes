@@ -860,6 +860,17 @@ MN.caretVisibleIn = function caretVisibleIn(rect, element) {
   return rect.left >= view.left - 4 && rect.left <= viewRight + 4;
 };
 
+/** 把原文的 scrollTop 调整到能看到指定光标矩形的位置（光标放在视口上部约 1/3）。 */
+MN.sourceScrollTopToReveal = function sourceScrollTopToReveal(source, rect, margin) {
+  if (!source || !rect || typeof source.getBoundingClientRect !== 'function') return null;
+  if (MN.caretVisibleIn(rect, source)) return source.scrollTop;
+  const box = source.getBoundingClientRect();
+  const offset = Number(margin) || Math.min(120, Math.max(24, box.height * 0.3));
+  const raw = source.scrollTop + rect.top - box.top - offset;
+  const max = Math.max(0, (source.scrollHeight || 0) - (source.clientHeight || 0));
+  return Math.max(0, Math.min(max, raw));
+};
+
 /** Markdown 原文编辑器。 */
 /** 在原文指定空行处插入 Markdown 块，返回新源码与块起始行号。 */
 function insertBlockAtSourceLine(markdown, lineIndex, snippet) {
@@ -1492,6 +1503,247 @@ MN.slashInsertMarkdown = function slashInsertMarkdown(markdown, block, snippet) 
   };
 };
 
+/** 图片预览：初始适应窗口比例 / 缩放范围 / 以某点为中心缩放后的偏移。 */
+MN.imageViewerFitScale = function imageViewerFitScale(naturalWidth, naturalHeight, availableWidth, availableHeight) {
+  const width = Math.max(1, Number(naturalWidth) || 1);
+  const height = Math.max(1, Number(naturalHeight) || 1);
+  const maxWidth = Math.max(64, Number(availableWidth) || 64);
+  const maxHeight = Math.max(64, Number(availableHeight) || 64);
+  return Math.max(0.02, Math.min(1, maxWidth / width, maxHeight / height));
+};
+
+MN.imageViewerClampScale = function imageViewerClampScale(value, fitScale) {
+  const fit = Math.max(0.02, Number(fitScale) || 1);
+  const min = Math.max(0.02, fit * 0.25);
+  const max = Math.max(8, fit * 8);
+  return Math.max(min, Math.min(max, Number(value) || fit));
+};
+
+MN.imageViewerZoomOffset = function imageViewerZoomOffset(offset, currentScale, nextScale, cx, cy) {
+  const current = Number(currentScale) || 1;
+  const ratio = (Number(nextScale) || current) / current;
+  return {
+    x: cx - (cx - (offset.x || 0)) * ratio,
+    y: cy - (cy - (offset.y || 0)) * ratio,
+  };
+};
+
+/** 预览图片双击后的全屏查看层：滚轮缩放、拖拽平移、适应窗口 / 1:1。 */
+MN.ImageViewer = function ImageViewer(props) {
+  const [scale, setScale] = useState(0);
+  const [fitScale, setFitScale] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [natural, setNatural] = useState({ width: 0, height: 0 });
+  const [failed, setFailed] = useState(false);
+  const rootRef = useRef(null);
+  const stageRef = useRef(null);
+  const scaleRef = useRef(0);
+  const dragRef = useRef(null);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (root && typeof root.focus === 'function') {
+      try {
+        root.focus({ preventScroll: true });
+      } catch (error) {
+        /* 忽略聚焦失败 */
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    scaleRef.current = scale;
+  }, [scale]);
+
+  const applyZoom = useCallback(
+    (nextScale, clientX, clientY) => {
+      const stage = stageRef.current;
+      if (!stage) return;
+      const current = scaleRef.current || fitScale;
+      const clamped = MN.imageViewerClampScale(nextScale, fitScale);
+      if (Math.abs(clamped - current) < 0.0001) return;
+      const rect = stage.getBoundingClientRect();
+      const cx = Number.isFinite(clientX) ? clientX - (rect.left + rect.width / 2) : 0;
+      const cy = Number.isFinite(clientY) ? clientY - (rect.top + rect.height / 2) : 0;
+      setOffset((previous) => MN.imageViewerZoomOffset(previous, current, clamped, cx, cy));
+      scaleRef.current = clamped;
+      setScale(clamped);
+    },
+    [fitScale],
+  );
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        props.onClose();
+      }
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [props.onClose]);
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || typeof stage.addEventListener !== 'function') return undefined;
+    const onWheel = (event) => {
+      event.preventDefault();
+      const base = scaleRef.current || fitScale;
+      const factor = event.deltaY < 0 ? 1.15 : 0.87;
+      applyZoom(base * factor, event.clientX, event.clientY);
+    };
+    stage.addEventListener('wheel', onWheel, { passive: false });
+    return () => stage.removeEventListener('wheel', onWheel);
+  }, [applyZoom, fitScale]);
+
+  const onImageLoad = (event) => {
+    const image = event.currentTarget;
+    const width = image.naturalWidth || image.width || 1;
+    const height = image.naturalHeight || image.height || 1;
+    const stage = stageRef.current;
+    const availableWidth = stage ? Math.max(120, stage.clientWidth - 48) : Math.max(120, window.innerWidth * 0.88);
+    const availableHeight = stage ? Math.max(120, stage.clientHeight - 48) : Math.max(120, window.innerHeight * 0.76);
+    const fit = MN.imageViewerFitScale(width, height, availableWidth, availableHeight);
+    setNatural({ width, height });
+    setFitScale(fit);
+    scaleRef.current = fit;
+    setScale(fit);
+    setOffset({ x: 0, y: 0 });
+  };
+
+  const resetFit = () => {
+    scaleRef.current = fitScale;
+    setScale(fitScale);
+    setOffset({ x: 0, y: 0 });
+  };
+
+  const resetActual = () => {
+    scaleRef.current = 1;
+    setScale(1);
+    setOffset({ x: 0, y: 0 });
+  };
+
+  const onPointerDown = (event) => {
+    if (event.button !== 0) return;
+    dragRef.current = { x: event.clientX, y: event.clientY, offset };
+    if (typeof event.currentTarget.setPointerCapture === 'function') {
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch (error) {
+        /* 忽略指针捕获失败 */
+      }
+    }
+  };
+
+  const onPointerMove = (event) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    setOffset({
+      x: drag.offset.x + event.clientX - drag.x,
+      y: drag.offset.y + event.clientY - drag.y,
+    });
+  };
+
+  const onPointerUp = () => {
+    dragRef.current = null;
+  };
+
+  const viewerButton = (key, label, title, onClick) =>
+    h(
+      'button',
+      {
+        key,
+        type: 'button',
+        className: 'mn-image-viewer-btn',
+        title,
+        'aria-label': title,
+        onClick,
+      },
+      label,
+    );
+
+  const percent = scale > 0 ? Math.round(scale * 100) + '%' : '—';
+  return h(
+    'div',
+    {
+      ref: rootRef,
+      tabIndex: -1,
+      className: 'mn-image-viewer',
+      role: 'dialog',
+      'aria-modal': 'true',
+      'aria-label': MN.t('imageViewer.title'),
+      onMouseDown: (event) => {
+        if (event.target === event.currentTarget) props.onClose();
+      },
+    },
+    h(
+      'div',
+      { className: 'mn-image-viewer-bar' },
+      h(
+        'div',
+        { className: 'mn-image-viewer-caption' },
+        h('span', { className: 'mn-image-viewer-name' }, props.alt || MN.t('imageViewer.title')),
+        natural.width > 0 ? h('span', { className: 'mn-image-viewer-meta' }, natural.width + ' × ' + natural.height) : null,
+      ),
+      h(
+        'div',
+        { className: 'mn-image-viewer-actions' },
+        viewerButton('out', '−', MN.t('imageViewer.zoomOut'), () => applyZoom((scaleRef.current || fitScale) / 1.25)),
+        viewerButton('percent', percent, MN.t('imageViewer.fit'), resetFit),
+        viewerButton('in', '+', MN.t('imageViewer.zoomIn'), () => applyZoom((scaleRef.current || fitScale) * 1.25)),
+        viewerButton('fit', MN.t('imageViewer.fit'), MN.t('imageViewer.fit'), resetFit),
+        viewerButton('actual', '1:1', MN.t('imageViewer.actual'), resetActual),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'mn-image-viewer-btn mn-image-viewer-close',
+            title: MN.t('imageViewer.close'),
+            'aria-label': MN.t('imageViewer.close'),
+            onClick: props.onClose,
+          },
+          h(MN.Icon, { name: 'close', size: 15 }),
+        ),
+      ),
+    ),
+    h(
+      'div',
+      {
+        ref: stageRef,
+        className: 'mn-image-viewer-stage',
+        onPointerDown,
+        onPointerMove,
+        onPointerUp,
+        onPointerCancel: onPointerUp,
+        onDoubleClick: () => {
+          if (Math.abs((scaleRef.current || fitScale) - fitScale) < 0.0001) resetActual();
+          else resetFit();
+        },
+      },
+      failed
+        ? h('div', { className: 'mn-image-viewer-error' }, MN.t('imageViewer.error'))
+        : h('img', {
+            src: props.src,
+            alt: props.alt || '',
+            draggable: false,
+            className: 'mn-image-viewer-img',
+            style: {
+              transform: 'translate(' + offset.x + 'px, ' + offset.y + 'px) scale(' + scale + ')',
+              opacity: scale > 0 ? 1 : 0,
+            },
+            onLoad: onImageLoad,
+            onError: () => setFailed(true),
+          }),
+    ),
+  );
+};
+
+
 MN.RichEditor = function RichEditor(props) {
   const elementRef = useRef(null);
   const lastEmittedRef = useRef(typeof props.markdown === 'string' ? props.markdown : '');
@@ -1506,6 +1758,7 @@ MN.RichEditor = function RichEditor(props) {
   const [slashMenu, setSlashMenu] = useState(null);
   const [tableMenu, setTableMenu] = useState(null);
   const [selectionToolbar, setSelectionToolbar] = useState(null);
+  const [imageViewer, setImageViewer] = useState(null);
   const selectionFrameRef = useRef(0);
   const selectionToolbarSuppressRef = useRef(0);
   const slashBlockRef = useRef(null);
@@ -2209,11 +2462,8 @@ MN.RichEditor = function RichEditor(props) {
     clearImageSelection();
   };
 
-  /** 双击图片恢复原始尺寸。 */
-  const handleEditorDoubleClick = (event) => {
-    const target = event.target;
-    if (!target || target.tagName !== 'IMG') return;
-    event.preventDefault();
+  /** 双击图片恢复原始尺寸（Alt+双击保留原行为）。 */
+  const resetImageSize = (target) => {
     target.removeAttribute('width');
     target.removeAttribute('height');
     if (target.style) {
@@ -2222,6 +2472,21 @@ MN.RichEditor = function RichEditor(props) {
     }
     emit();
     syncImageOverlay();
+  };
+
+  /** 双击图片打开大图查看层；Alt+双击仍恢复原始尺寸。 */
+  const handleEditorDoubleClick = (event) => {
+    const target = event.target;
+    if (!target || target.tagName !== 'IMG') return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.altKey) {
+      resetImageSize(target);
+      return;
+    }
+    const src = target.currentSrc || target.src;
+    if (!src) return;
+    setImageViewer({ src, alt: target.alt || '' });
   };
 
   /** 从某个把手开始拖拽；等比缩放，只把 width 写回 Markdown。 */
@@ -2349,6 +2614,14 @@ MN.RichEditor = function RichEditor(props) {
           ),
         );
 
+  const imageViewerElement = imageViewer
+    ? h(MN.ImageViewer, {
+        src: imageViewer.src,
+        alt: imageViewer.alt,
+        onClose: () => setImageViewer(null),
+      })
+    : null;
+
   return h(
     'div',
     { className: 'mn-editor-wrap' },
@@ -2424,6 +2697,7 @@ MN.RichEditor = function RichEditor(props) {
     slashMenuElement,
     tableMenuElement,
     imageOverlayElement,
+    imageViewerElement,
   );
 };
 

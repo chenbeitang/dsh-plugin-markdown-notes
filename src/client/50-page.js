@@ -594,7 +594,17 @@ MN.AppPage = function AppPage(props) {
         return;
       }
       const offset = MN.sourceOffsetFromPosition(value, position.line, position.column);
-      const rect = MN.measureSourceCaret(source, sourceMirrorRef.current, offset);
+      let rect = MN.measureSourceCaret(source, sourceMirrorRef.current, offset);
+      // 点击预览定位到原文时，若目标行在原文视口外，原文栏自动滚到该行，
+      // 否则光标提示会被隐藏，看起来像“没有定位成功”。
+      if (rect && !MN.caretVisibleIn(rect, source)) {
+        const target = MN.sourceScrollTopToReveal(source, rect);
+        if (target !== null && Math.abs(target - source.scrollTop) > 1) {
+          scrollSyncRef.current.lockUntil = Date.now() + 180;
+          source.scrollTop = target;
+          rect = MN.measureSourceCaret(source, sourceMirrorRef.current, offset);
+        }
+      }
       if (!rect || !MN.caretVisibleIn(rect, source)) {
         setGhostCaret(null);
         return;

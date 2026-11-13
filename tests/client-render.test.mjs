@@ -74,6 +74,7 @@ const documentStub = {
   createElement: () => ({ setAttribute() {}, appendChild() {}, style: {} }),
   querySelector: () => null,
   activeElement: null,
+  body: { style: {} },
   createRange() {
     const range = {
       startOffset: 0,
@@ -512,6 +513,32 @@ check('ContextMenu renders items', () => {
     }),
   );
   assert.ok(hasClass(element, 'mn-context'));
+});
+
+check('source scroll top reveals an offscreen caret', () => {
+  const env = makeEnv();
+  env.reset([]);
+  const source = {
+    scrollTop: 0,
+    scrollHeight: 1000,
+    clientHeight: 200,
+    getBoundingClientRect: () => ({ left: 0, top: 100, right: 300, bottom: 300, width: 300, height: 200 }),
+  };
+  assert.equal(env.MN.sourceScrollTopToReveal(source, { top: 150, left: 10, height: 20 }), 0);
+  assert.equal(env.MN.sourceScrollTopToReveal(source, { top: 350, left: 10, height: 20 }), 190);
+  source.scrollTop = 400;
+  assert.equal(env.MN.sourceScrollTopToReveal(source, { top: 50, left: 10, height: 20 }), 290);
+});
+
+check('image viewer scales and keeps the pointer anchor', () => {
+  const env = makeEnv();
+  env.reset([]);
+  assert.equal(env.MN.imageViewerFitScale(4000, 3000, 1000, 750), 0.25);
+  assert.equal(env.MN.imageViewerClampScale(100, 0.25), 8);
+  assert.deepEqual(env.MN.imageViewerZoomOffset({ x: 0, y: 0 }, 1, 2, 100, 0), { x: -100, y: 0 });
+  env.reset([]);
+  const viewer = deepRender(env, env.MN.ImageViewer({ src: 'a.png', alt: 'A', onClose() {} }));
+  assert.ok(hasClass(viewer, 'mn-image-viewer'));
 });
 
 check('source selection applies markdown formatting wrappers', () => {

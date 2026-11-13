@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Markdown Notes",
-    "description": "A local Markdown notes manager in the sidebar: folder tree, images and rich text, favorites, delete, a floating text-selection formatting toolbar in both source and rendered views, a # heading navigation outline, table cell hover/selection with right-click row/column insert and delete, collapsible code blocks with language switching, drag-to-reorder notes and folders plus cross-folder moves, a resizable and collapsible file bar, an editable split view with draggable pane widths, a slash menu in both source and rendered views, syntax highlighting, open-in-file-manager, image resizing, synchronized scrolling, and character-accurate mirrored carets."
+    "description": "A local Markdown notes manager in the sidebar: folder tree, images and rich text, favorites, delete, a floating text-selection formatting toolbar in both source and rendered views, double-click image preview with fullscreen zoom and pan, a # heading navigation outline, table cell hover/selection with right-click row/column insert and delete, collapsible code blocks with language switching, drag-to-reorder notes and folders plus cross-folder moves, a resizable and collapsible file bar, an editable split view with draggable pane widths, a slash menu in both source and rendered views, syntax highlighting, open-in-file-manager, image resizing, synchronized scrolling, and character-accurate mirrored carets."
   }
 }
