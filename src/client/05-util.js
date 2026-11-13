@@ -262,39 +262,71 @@ MN.uid = function (prefix) {
 /** 按需加载 Mermaid（Host 同源提供，避免依赖外网 CDN）。 */
 MN.loadMermaidLibrary = (function () {
   let promise = null;
+  let ready = null;
+  const initialize = (mermaid) => {
+    if (mermaid.__mnInitialized !== true) {
+      try {
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'strict',
+          theme: 'default',
+          fontFamily: 'sans-serif',
+          flowchart: { htmlLabels: false, useMaxWidth: true },
+          class: { htmlLabels: false, useMaxWidth: true },
+          state: { htmlLabels: false, useMaxWidth: true },
+          sequence: { useMaxWidth: true },
+          gantt: { useMaxWidth: true },
+          journey: { useMaxWidth: true },
+          pie: { useMaxWidth: true },
+          er: { useMaxWidth: true },
+        });
+      } catch (error) {
+        /* 初始化参数不兼容时仍尝试使用默认配置 */
+      }
+      try {
+        mermaid.__mnInitialized = true;
+      } catch (error) {
+        /* 只读对象时忽略标记 */
+      }
+    }
+    return mermaid;
+  };
   return function loadMermaidLibrary() {
-    if (window.mermaid && typeof window.mermaid.render === 'function') return Promise.resolve(window.mermaid);
+    if (ready) return Promise.resolve(ready);
+    // 关键：初始化尚未完成时不能因为 window.mermaid 已存在就提前返回，
+    // 否则第一次点击「渲染」可能在 initialize 之前执行而失败，重试才成功。
     if (promise) return promise;
+    if (window.mermaid && window.mermaid.__mnInitialized === true && typeof window.mermaid.render === 'function') {
+      ready = window.mermaid;
+      return Promise.resolve(ready);
+    }
     promise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = MN.API + '/mermaid?v=' + encodeURIComponent(String(MN.version || '1'));
-      script.async = true;
-      script.onload = () => {
+      const complete = () => {
         if (!window.mermaid || typeof window.mermaid.render !== 'function') {
+          promise = null;
           reject(new Error('Mermaid 未正确加载'));
           return;
         }
         try {
-          window.mermaid.initialize({
-            startOnLoad: false,
-            securityLevel: 'strict',
-            theme: 'default',
-            fontFamily: 'sans-serif',
-            flowchart: { htmlLabels: false, useMaxWidth: true },
-            class: { htmlLabels: false, useMaxWidth: true },
-            state: { htmlLabels: false, useMaxWidth: true },
-            sequence: { useMaxWidth: true },
-            gantt: { useMaxWidth: true },
-            journey: { useMaxWidth: true },
-            pie: { useMaxWidth: true },
-            er: { useMaxWidth: true },
-          });
+          ready = initialize(window.mermaid);
+          resolve(ready);
         } catch (error) {
-          /* 初始化参数不兼容时仍尝试使用默认配置 */
+          promise = null;
+          reject(error instanceof Error ? error : new Error(String(error)));
         }
-        resolve(window.mermaid);
       };
-      script.onerror = () => reject(new Error('无法加载 Mermaid 脚本'));
+      if (window.mermaid && typeof window.mermaid.render === 'function') {
+        complete();
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = MN.API + '/mermaid?v=' + encodeURIComponent(String(MN.version || '1'));
+      script.async = true;
+      script.onload = complete;
+      script.onerror = () => {
+        promise = null;
+        reject(new Error('无法加载 Mermaid 脚本'));
+      };
       (document.head || document.body || document.documentElement).appendChild(script);
     });
     return promise;

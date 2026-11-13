@@ -195,6 +195,7 @@ check('mermaid fence renders a diagram container with source fallback', () => {
   assert.match(html, /class="mn-mermaid"/);
   assert.match(html, /data-mermaid="/);
   assert.match(html, /class="mn-mermaid-source"/);
+  assert.match(html, /class="mn-mermaid-render"[^>]*>渲染<\/button>/);
   assert.match(html, /language-mermaid/);
   assert.match(html, /<option value="mermaid" selected>mermaid<\/option>/);
 });

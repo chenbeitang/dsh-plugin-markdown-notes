@@ -45,7 +45,7 @@ MN.md = (function () {
     'powershell', 'dockerfile', 'diff', 'markdown', 'mermaid', 'puml', 'plantuml',
   ];
 
-  function codeLanguageSelect(language, startLine) {
+  function codeLanguageSelect(language, startLine, showMermaidRender) {
     const current = language === '' ? 'text' : language;
     const values = CODE_LANGUAGE_OPTIONS.slice();
     if (!values.includes(current)) values.unshift(current);
@@ -66,6 +66,9 @@ MN.md = (function () {
       '</select>' +
       '</span>' +
       '<button type="button" class="mn-code-toggle" contenteditable="false" aria-expanded="true" title="收起代码块" aria-label="收起代码块"><span class="mn-code-toggle-text">▾ 收起</span></button>' +
+      (showMermaidRender
+        ? '<button type="button" class="mn-mermaid-render" contenteditable="false" title="渲染 Mermaid 图表" aria-label="渲染 Mermaid 图表">渲染</button>'
+        : '') +
       '</div>'
     );
   }
@@ -380,10 +383,8 @@ MN.md = (function () {
         if (language === 'mermaid') {
           out.push(
             '<div class="mn-code-block mn-mermaid-block" data-code-index="' + codeIndex + '">' +
-              codeLanguageSelect('mermaid', startLine) +
-              '<div class="mn-mermaid" contenteditable="false" data-mermaid="' + escapeAttr(encodeURIComponent(code)) + '">' +
-              '<div class="mn-mermaid-loading">Mermaid</div>' +
-              '</div>' +
+              codeLanguageSelect('mermaid', startLine, true) +
+              '<div class="mn-mermaid" contenteditable="false" data-mermaid="' + escapeAttr(encodeURIComponent(code)) + '"></div>' +
               '<pre class="mn-mermaid-source"' + attrs(startLine, index) + '><code class="language-mermaid">' + escapeHtml(code) + '</code></pre>' +
               '</div>',
           );

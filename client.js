@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
     /** 本包 Client 侧唯一命名空间：各 part 只往这里挂方法/组件。 */
     const MN = {
       id: 'markdown-notes',
-      version: '1.20.1',
+      version: '1.21.1',
       React,
       h,
       useState,
@@ -300,39 +300,71 @@ MN.uid = function (prefix) {
 /** 按需加载 Mermaid（Host 同源提供，避免依赖外网 CDN）。 */
 MN.loadMermaidLibrary = (function () {
   let promise = null;
+  let ready = null;
+  const initialize = (mermaid) => {
+    if (mermaid.__mnInitialized !== true) {
+      try {
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'strict',
+          theme: 'default',
+          fontFamily: 'sans-serif',
+          flowchart: { htmlLabels: false, useMaxWidth: true },
+          class: { htmlLabels: false, useMaxWidth: true },
+          state: { htmlLabels: false, useMaxWidth: true },
+          sequence: { useMaxWidth: true },
+          gantt: { useMaxWidth: true },
+          journey: { useMaxWidth: true },
+          pie: { useMaxWidth: true },
+          er: { useMaxWidth: true },
+        });
+      } catch (error) {
+        /* 初始化参数不兼容时仍尝试使用默认配置 */
+      }
+      try {
+        mermaid.__mnInitialized = true;
+      } catch (error) {
+        /* 只读对象时忽略标记 */
+      }
+    }
+    return mermaid;
+  };
   return function loadMermaidLibrary() {
-    if (window.mermaid && typeof window.mermaid.render === 'function') return Promise.resolve(window.mermaid);
+    if (ready) return Promise.resolve(ready);
+    // 关键：初始化尚未完成时不能因为 window.mermaid 已存在就提前返回，
+    // 否则第一次点击「渲染」可能在 initialize 之前执行而失败，重试才成功。
     if (promise) return promise;
+    if (window.mermaid && window.mermaid.__mnInitialized === true && typeof window.mermaid.render === 'function') {
+      ready = window.mermaid;
+      return Promise.resolve(ready);
+    }
     promise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = MN.API + '/mermaid?v=' + encodeURIComponent(String(MN.version || '1'));
-      script.async = true;
-      script.onload = () => {
+      const complete = () => {
         if (!window.mermaid || typeof window.mermaid.render !== 'function') {
+          promise = null;
           reject(new Error('Mermaid 未正确加载'));
           return;
         }
         try {
-          window.mermaid.initialize({
-            startOnLoad: false,
-            securityLevel: 'strict',
-            theme: 'default',
-            fontFamily: 'sans-serif',
-            flowchart: { htmlLabels: false, useMaxWidth: true },
-            class: { htmlLabels: false, useMaxWidth: true },
-            state: { htmlLabels: false, useMaxWidth: true },
-            sequence: { useMaxWidth: true },
-            gantt: { useMaxWidth: true },
-            journey: { useMaxWidth: true },
-            pie: { useMaxWidth: true },
-            er: { useMaxWidth: true },
-          });
+          ready = initialize(window.mermaid);
+          resolve(ready);
         } catch (error) {
-          /* 初始化参数不兼容时仍尝试使用默认配置 */
+          promise = null;
+          reject(error instanceof Error ? error : new Error(String(error)));
         }
-        resolve(window.mermaid);
       };
-      script.onerror = () => reject(new Error('无法加载 Mermaid 脚本'));
+      if (window.mermaid && typeof window.mermaid.render === 'function') {
+        complete();
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = MN.API + '/mermaid?v=' + encodeURIComponent(String(MN.version || '1'));
+      script.async = true;
+      script.onload = complete;
+      script.onerror = () => {
+        promise = null;
+        reject(new Error('无法加载 Mermaid 脚本'));
+      };
       (document.head || document.body || document.documentElement).appendChild(script);
     });
     return promise;
@@ -387,7 +419,7 @@ MN.md = (function () {
     'powershell', 'dockerfile', 'diff', 'markdown', 'mermaid', 'puml', 'plantuml',
   ];
 
-  function codeLanguageSelect(language, startLine) {
+  function codeLanguageSelect(language, startLine, showMermaidRender) {
     const current = language === '' ? 'text' : language;
     const values = CODE_LANGUAGE_OPTIONS.slice();
     if (!values.includes(current)) values.unshift(current);
@@ -408,6 +440,9 @@ MN.md = (function () {
       '</select>' +
       '</span>' +
       '<button type="button" class="mn-code-toggle" contenteditable="false" aria-expanded="true" title="收起代码块" aria-label="收起代码块"><span class="mn-code-toggle-text">▾ 收起</span></button>' +
+      (showMermaidRender
+        ? '<button type="button" class="mn-mermaid-render" contenteditable="false" title="渲染 Mermaid 图表" aria-label="渲染 Mermaid 图表">渲染</button>'
+        : '') +
       '</div>'
     );
   }
@@ -722,10 +757,8 @@ MN.md = (function () {
         if (language === 'mermaid') {
           out.push(
             '<div class="mn-code-block mn-mermaid-block" data-code-index="' + codeIndex + '">' +
-              codeLanguageSelect('mermaid', startLine) +
-              '<div class="mn-mermaid" contenteditable="false" data-mermaid="' + escapeAttr(encodeURIComponent(code)) + '">' +
-              '<div class="mn-mermaid-loading">Mermaid</div>' +
-              '</div>' +
+              codeLanguageSelect('mermaid', startLine, true) +
+              '<div class="mn-mermaid" contenteditable="false" data-mermaid="' + escapeAttr(encodeURIComponent(code)) + '"></div>' +
               '<pre class="mn-mermaid-source"' + attrs(startLine, index) + '><code class="language-mermaid">' + escapeHtml(code) + '</code></pre>' +
               '</div>',
           );
@@ -1965,13 +1998,19 @@ html[data-platform="darwin"] .mn-root{padding-top:var(--dsh-frame-top-clearance,
 .mn-rich .mn-code-block[data-collapsed="true"] .mn-code-head{border-bottom-color:transparent}
 .mn-rich .mn-code-block pre{margin:0;border:0;border-radius:0;background:transparent}
 .mn-rich .mn-mermaid-block{contain:layout paint}
-.mn-rich .mn-mermaid{display:flex;align-items:center;justify-content:center;padding:14px 12px;overflow:auto;background:var(--dsw-alias-bg-base,#fff);min-height:42px;contain:layout paint style}
+.mn-rich .mn-mermaid{display:none;align-items:center;justify-content:center;padding:14px 12px;overflow:auto;background:var(--dsw-alias-bg-base,#fff);min-height:42px;contain:layout paint style}
+.mn-rich .mn-mermaid-block.mn-mermaid-rendered .mn-mermaid{display:flex}
+.mn-rich .mn-mermaid-block.mn-mermaid-failed .mn-mermaid{display:flex}
 .mn-rich .mn-mermaid svg{display:block;max-width:100%;height:auto}
 .mn-rich .mn-mermaid-loading{padding:8px 4px;font-size:11px;color:var(--dsw-alias-label-secondary,#8a8a90)}
 .mn-rich .mn-mermaid-error{padding:8px 4px;font-size:12px;color:var(--dsw-alias-state-error-primary,#c62828)}
-.mn-rich .mn-mermaid-source{display:none!important}
-.mn-rich .mn-mermaid-block.mn-mermaid-failed .mn-mermaid{min-height:0;padding:8px 10px 0;background:var(--dsw-alias-bg-layer-1,#f6f6f7)}
-.mn-rich .mn-mermaid-block.mn-mermaid-failed .mn-mermaid-source{display:block!important;padding:0 12px 12px;font-family:"Cascadia Mono",Consolas,monospace;font-size:12px;line-height:1.6;white-space:pre;overflow:auto}
+.mn-rich .mn-mermaid-block .mn-mermaid-source{display:block}
+.mn-rich .mn-mermaid-block.mn-mermaid-rendered .mn-mermaid-source{display:none!important}
+.mn-rich .mn-mermaid-block.mn-mermaid-failed .mn-mermaid-source{display:block!important}
+.mn-rich .mn-mermaid-render{flex:none;margin-left:2px;height:22px;padding:0 8px;display:inline-flex;align-items:center;justify-content:center;border:1px solid color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 30%,transparent);border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 8%,transparent);color:var(--dsw-alias-brand-primary,#2f6bff);font:inherit;font-size:10.5px;line-height:1;white-space:nowrap;cursor:pointer;outline:none;transition:background .12s ease,color .12s ease,border-color .12s ease}
+.mn-rich .mn-mermaid-render:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 15%,transparent);border-color:color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 48%,transparent)}
+.mn-rich .mn-mermaid-render:disabled{opacity:.6;cursor:default}
+.mn-rich .mn-mermaid-render:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#2f6bff) 18%,transparent)}
 .mn-rich .mn-code-block[data-collapsed="true"] .mn-mermaid{display:none}
 .mn-rich .mn-puml-block{contain:layout paint}
 .mn-rich .mn-puml{display:flex;align-items:center;justify-content:center;padding:14px 12px;overflow:auto;background:var(--dsw-alias-bg-base,#fff);min-height:42px;contain:layout paint style}
@@ -4886,6 +4925,76 @@ MN.RichEditor = function RichEditor(props) {
   const codeLanguageHandlerRef = useRef(changeCodeLanguage);
   codeLanguageHandlerRef.current = changeCodeLanguage;
 
+  // Mermaid 默认展示源码；点击代码头右侧「渲染」后才生成 SVG。
+  const renderMermaidBlock = useCallback(async (block) => {
+    if (!block || !block.isConnected) return;
+    const host = typeof block.querySelector === 'function' ? block.querySelector('.mn-mermaid[data-mermaid]') : null;
+    const button = typeof block.querySelector === 'function' ? block.querySelector('.mn-mermaid-render') : null;
+    if (!host) return;
+    if (block.classList.contains('mn-mermaid-rendered')) {
+      block.classList.remove('mn-mermaid-rendered');
+      block.classList.remove('mn-mermaid-failed');
+      host.innerHTML = '';
+      host.removeAttribute('data-rendered');
+      if (button) {
+        button.disabled = false;
+        button.textContent = '渲染';
+      }
+      return;
+    }
+    if (host.getAttribute('data-rendered') === 'loading') return;
+    let source = '';
+    try {
+      source = decodeURIComponent(host.getAttribute('data-mermaid') || '');
+    } catch (error) {
+      source = '';
+    }
+    if (source.trim() === '') {
+      block.classList.add('mn-mermaid-failed');
+      host.innerHTML = '<div class="mn-mermaid-error">Mermaid 源码为空</div>';
+      if (button) button.textContent = '重试渲染';
+      return;
+    }
+    host.setAttribute('data-rendered', 'loading');
+    block.classList.remove('mn-mermaid-failed');
+    if (button) {
+      button.disabled = true;
+      button.textContent = '渲染中…';
+    }
+    try {
+      const mermaid = await MN.loadMermaidLibrary();
+      const renderOnce = () => mermaid.render(MN.uid('mn-mermaid'), source);
+      let result;
+      try {
+        result = await renderOnce();
+      } catch (firstError) {
+        // 首次渲染偶尔会撞上 Mermaid 内部初始化 / 字体测量时序，短暂等待后自动重试一次。
+        await new Promise((resolve) => window.setTimeout(resolve, 150));
+        result = await renderOnce();
+      }
+      if (!block.isConnected || !host.isConnected) return;
+      if (!result || !result.svg) throw new Error('Mermaid 没有返回 SVG');
+      host.innerHTML = result.svg;
+      host.setAttribute('data-rendered', 'true');
+      block.classList.remove('mn-mermaid-failed');
+      block.classList.add('mn-mermaid-rendered');
+      if (button) {
+        button.disabled = false;
+        button.textContent = '显示源码';
+      }
+    } catch (error) {
+      console.warn('[markdown-notes] Mermaid 渲染失败', error);
+      if (!block.isConnected || !host.isConnected) return;
+      block.classList.add('mn-mermaid-failed');
+      host.innerHTML = '<div class="mn-mermaid-error">Mermaid 源码解析失败</div>';
+      host.setAttribute('data-rendered', 'failed');
+      if (button) {
+        button.disabled = false;
+        button.textContent = '重试渲染';
+      }
+    }
+  }, []);
+
   // 原生 change 监听比 React 的 contenteditable 合成事件更可靠。
   useEffect(() => {
     const editor = elementRef.current;
@@ -4900,6 +5009,13 @@ MN.RichEditor = function RichEditor(props) {
     const onToggleCode = (event) => {
       const target = event.target;
       if (!target || typeof target.closest !== 'function') return;
+      const renderButton = target.closest('.mn-mermaid-render');
+      if (renderButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        void renderMermaidBlock(renderButton.closest('.mn-mermaid-block'));
+        return;
+      }
       const anchor = target.closest('a[href]');
       if (anchor && (event.ctrlKey || event.metaKey)) {
         event.preventDefault();
@@ -5131,200 +5247,6 @@ MN.RichEditor = function RichEditor(props) {
   // 重新渲染（语言切换 / 外部编辑 / 打开文档）后重新套用收起状态。
   useEffect(() => {
     applyCodeCollapseStates(elementRef.current, collapsedCodeRef.current);
-  }, [seedHtml]);
-
-  // Mermaid 代码块懒渲染：只在接近视口时加载库 / 渲染，且避开滚动。
-  useEffect(() => {
-    const editor = elementRef.current;
-    if (!editor || typeof editor.querySelectorAll !== 'function') return undefined;
-    const hosts = Array.from(editor.querySelectorAll('.mn-mermaid[data-mermaid]'));
-    if (hosts.length === 0) return undefined;
-    const token = mermaidTokenRef.current + 1;
-    mermaidTokenRef.current = token;
-    let cancelled = false;
-    let loaded = null;
-    let loading = false;
-    let rendering = false;
-    let observer = null;
-    let idleHandle = 0;
-    let quietTimer = 0;
-    let initialTimer = 0;
-    let lastScrollAt = Date.now();
-    const pending = new Set();
-    const queue = [];
-    const queued = new Set();
-
-    const clearIdle = () => {
-      if (idleHandle === 0) return;
-      if (typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(idleHandle);
-      else window.clearTimeout(idleHandle);
-      idleHandle = 0;
-    };
-    const scheduleIdle = (fn, timeout) => {
-      if (cancelled) return;
-      if (typeof window.requestIdleCallback === 'function') {
-        idleHandle = window.requestIdleCallback(
-          () => {
-            idleHandle = 0;
-            if (!cancelled) fn();
-          },
-          { timeout: timeout || 1800 },
-        );
-      } else {
-        idleHandle = window.setTimeout(() => {
-          idleHandle = 0;
-          if (!cancelled) fn();
-        }, 90);
-      }
-    };
-    const afterQuiet = (fn, extraDelay) => {
-      if (cancelled) return;
-      window.clearTimeout(quietTimer);
-      const wait = Math.max(0, lastScrollAt + 320 - Date.now()) + (extraDelay || 0);
-      if (wait > 0) {
-        quietTimer = window.setTimeout(() => afterQuiet(fn, 0), wait);
-        return;
-      }
-      scheduleIdle(fn);
-    };
-    const markScroll = () => {
-      lastScrollAt = Date.now();
-    };
-    editor.addEventListener('scroll', markScroll, { passive: true });
-    window.addEventListener('scroll', markScroll, true);
-
-    const markFailed = (host, message) => {
-      if (!host || !host.isConnected) return;
-      host.innerHTML = '<div class="mn-mermaid-error">' + message + '</div>';
-      host.setAttribute('data-rendered', 'failed');
-      const block = host.closest ? host.closest('.mn-code-block') : null;
-      if (block) block.classList.add('mn-mermaid-failed');
-    };
-
-    const renderHost = (host) =>
-      new Promise((resolve) => {
-        if (cancelled || !host.isConnected || host.getAttribute('data-rendered')) {
-          resolve();
-          return;
-        }
-        let source = '';
-        try {
-          source = decodeURIComponent(host.getAttribute('data-mermaid') || '');
-        } catch (error) {
-          source = '';
-        }
-        if (source.trim() === '') {
-          markFailed(host, 'Mermaid 源码为空');
-          resolve();
-          return;
-        }
-        const id = 'mn-mermaid-' + token + '-' + (host.getAttribute('data-code-index') || Date.now());
-        Promise.resolve(loaded.render(id, source))
-          .then((result) => {
-            if (cancelled || mermaidTokenRef.current !== token || !host.isConnected) {
-              resolve();
-              return;
-            }
-            host.innerHTML = result && result.svg ? result.svg : '';
-            host.setAttribute('data-rendered', 'true');
-            const block = host.closest ? host.closest('.mn-code-block') : null;
-            if (block) block.classList.add('mn-mermaid-rendered');
-            resolve();
-          })
-          .catch((error) => {
-            console.warn('[markdown-notes] Mermaid 渲染失败', error);
-            if (cancelled || mermaidTokenRef.current !== token) {
-              resolve();
-              return;
-            }
-            markFailed(host, 'Mermaid 源码解析失败');
-            resolve();
-          });
-      });
-
-    const pump = () => {
-      if (cancelled || rendering) return;
-      const host = queue.shift();
-      if (!host) return;
-      queued.delete(host);
-      if (!host.isConnected || host.getAttribute('data-rendered')) {
-        pump();
-        return;
-      }
-      rendering = true;
-      renderHost(host).finally(() => {
-        rendering = false;
-        if (queue.length > 0) afterQuiet(pump, 0);
-      });
-    };
-
-    const enqueue = (host) => {
-      if (cancelled || !host || !host.isConnected || host.getAttribute('data-rendered') || queued.has(host)) return;
-      queued.add(host);
-      queue.push(host);
-      afterQuiet(pump, 0);
-    };
-
-    const flushPending = () => {
-      const visible = Array.from(pending);
-      pending.clear();
-      for (const host of visible) enqueue(host);
-    };
-
-    const ensureLoaded = () => {
-      if (loaded) {
-        flushPending();
-        return;
-      }
-      if (loading || cancelled) return;
-      loading = true;
-      // 初始文档打开时先让首帧 / 首次滚动稳定，再在空闲时加载 2.9 MB 的 Mermaid。
-      afterQuiet(() => {
-        if (cancelled || loaded) return;
-        MN.loadMermaidLibrary()
-          .then((mermaid) => {
-            if (cancelled || mermaidTokenRef.current !== token) return;
-            loaded = mermaid;
-            flushPending();
-          })
-          .catch((error) => {
-            console.warn('[markdown-notes] Mermaid 加载失败', error);
-            if (cancelled || mermaidTokenRef.current !== token) return;
-            for (const host of hosts) markFailed(host, 'Mermaid 加载失败');
-          });
-      }, 900);
-    };
-
-    if (typeof IntersectionObserver === 'function') {
-      observer = new IntersectionObserver(
-        (entries) => {
-          for (const entry of entries) {
-            if (!entry.isIntersecting) continue;
-            const host = entry.target;
-            host.setAttribute('data-mermaid-seen', 'true');
-            ensureLoaded();
-            if (loaded) enqueue(host);
-            else pending.add(host);
-          }
-        },
-        { root: editor, rootMargin: '240px 0px' },
-      );
-      for (const host of hosts) observer.observe(host);
-    } else {
-      // 极老环境没有 IntersectionObserver：退化为延迟渲染全部。
-      for (const host of hosts) pending.add(host);
-      initialTimer = window.setTimeout(ensureLoaded, 900);
-    }
-
-    return () => {
-      cancelled = true;
-      observer?.disconnect?.();
-      editor.removeEventListener('scroll', markScroll);
-      window.removeEventListener('scroll', markScroll, true);
-      clearIdle();
-      window.clearTimeout(quietTimer);
-      window.clearTimeout(initialTimer);
-    };
   }, [seedHtml]);
 
   // PlantUML 通过 Host 代理渲染，浏览器只接收同源 SVG；长源码不会拼成超长外链。
